@@ -1,6 +1,14 @@
 # btcusdt
 比特币自动交易程序，欧易API接口
 
+btcusdt.exe 和 set_api.exe是Windows系统使用的；
+btcusdt.py和set_api.py是界面版的Python程序，可以运行在任何桌面操作系统，只要安装有Python环境；
+mark.py和start.py是命令行版Python程序，可以运行在CentOS等命令行操作系统，使用说明请见：
+https://www.btcusdt.org/d/1
+
+BTCUSDT量化交易云是一个开源项目，官方网站：
+www.btcusdt.org
+
 ## 执行体下载地址
 [Windows版本量化交易执行体](http://img.btcusdt.org/tool/btcusdt_win.zip)
 
