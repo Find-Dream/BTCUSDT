@@ -3,8 +3,8 @@
 
 btcusdt.exe 和 set_api.exe是Windows系统使用的；
 btcusdt.py和set_api.py是界面版的Python程序，可以运行在任何桌面操作系统，只要安装有Python环境；
-mark.py和start.py是命令行版Python程序，可以运行在CentOS等命令行操作系统，使用说明请见：
-https://www.btcusdt.org/d/1
+mark.py和start.py是命令行版Python程序，可以运行在CentOS等命令行操作系统。
+使用说明请见：https://www.btcusdt.org/d/1
 
 BTCUSDT量化交易云是一个开源项目，官方网站：
 www.btcusdt.org
