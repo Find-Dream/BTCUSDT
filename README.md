@@ -18,17 +18,6 @@ www.btcusdt.org
 
 [量化交易执行体使用说明](https://www.btcusdt.org/d/522)
 
-```
-支持本站发展，如果您是第一次注册欧易交易所，请使用下面的邀请链接注册：
-https://www.ouyi.fit/join/8878217
-或者在注册的时候输入邀请码：8878217
-```
-```
-赞助本站：
-BTC赞助地址：1PDqGEvr6kRLv66Z6PqUK4ncxvfdUTEhz1
-USDT赞助地址：1PDqGEvr6kRLv66Z6PqUK4ncxvfdUTEhz1
-ETH赞助地址：0x9ecee129c83f49f7e0c58b61138f05d906de7746
-```
 - Windows版本为界面版，下载后首先通过set_api配置交易所API，然后再运行btcusdt程序开始自动交易即可；
 - Python源代码命令行版可运行在任意操作系统上，只要安装并配置好Python环境即可，推荐使用Python3.7.7版本，需要安装requests库，通过手动修改`okex_api.json`文件配置交易所API，在CentOS下通过以下命令可以使执行体在后台自动执行：
 ```
