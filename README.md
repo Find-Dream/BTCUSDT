@@ -1,4 +1,4 @@
-# btcusdt
+# BTCUSDT
 比特币自动交易程序，欧易API接口
 
 btcusdt.exe 和 set_api.exe是Windows系统使用的；
