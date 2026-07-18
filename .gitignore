@@ -18,3 +18,6 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+data/btcusdt.db-shm
+data/btcusdt.db-wal
