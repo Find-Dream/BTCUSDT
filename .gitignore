@@ -9,9 +9,9 @@ log/f*
 log/k*
 log/m*
 log/o*
-log/s*
 log/w*
 log/t*
+log/*.log
 
 # python
 __pycache__/

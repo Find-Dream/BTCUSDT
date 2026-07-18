@@ -48,6 +48,14 @@ pip install -r requirements.txt
 
 ### 2. 配置 OKX API
 
+拷贝配置文件
+
+```
+cp conf/okx_api_example.json conf/okx_api.json
+```
+
+
+
 编辑 `conf/okx_api.json`：
 
 ```json
