@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}模型管理 - 量化交易{% endblock %}
+{% block nav_models %}active{% endblock %}
+{% block content %}
+
+  <div class="card">
+    <h2 style="display:flex;align-items:center;gap:12px;">
+      模型库 
+      <span style="margin-left:auto;font-size:12px;color:#7d8899;">
+        晋升模型请在 K线图 页面点选时间节点</span>
+    </h2>
+    <div id="promote-msg" style="font-size:13px;margin-bottom:8px;"></div>
+    <div style="max-height:300px;overflow:auto;">
+      <table>
+        <thead><tr><th>ID</th><th>类型</th><th>15码指纹</th><th>时间</th><th></th></tr></thead>
+        <tbody id="model-rows"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>命中信号（最近）</h2>
+    <div style="max-height:220px;overflow:auto;">
+      <table>
+        <thead><tr><th>模型ID</th><th>类型</th><th>价格</th><th>时间</th></tr></thead>
+        <tbody id="signal-rows"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>模拟持仓盈亏　<span id="pnl-total" style="font-size:13px;"></span></h2>
+    <div style="max-height:260px;overflow:auto;">
+      <table>
+        <thead><tr><th>方向</th><th>开仓价</th><th>平仓价</th><th>收益</th><th>收益率</th><th>时间</th></tr></thead>
+        <tbody id="pnl-rows"></tbody>
+      </table>
+    </div>
+  </div>
+{% endblock %}
+{% block script %}
+<script>
+const TYPE = {1:'开多',2:'平多',3:'开空',4:'平空'};
+const FP = ['spot_1','m5_1','m3_1','spot_2','m5_2','m3_2','spot_3','m5_3','m3_3',
+            'spot_4','m5_4','m3_4','spot_5','m5_5','m3_5'];
+
+function loadModels() {
+  fetch('/api/models?table=model_1m').then(r => r.json()).then(rows => {
+    const tb = document.getElementById('model-rows');
+    tb.innerHTML = '';
+    rows.forEach(m => {
+      const codes = FP.map(f => m[f]).join(',');
+      const t = new Date(m.uptime * 1000).toLocaleString();
+      tb.innerHTML += `<tr><td>${m.id}</td><td>${TYPE[m.type]||m.type}</td>
+        <td style="font-family:monospace;font-size:11px;">${codes}</td><td>${t}</td>
+        <td><button class="ghost" onclick="delModel(${m.id})">删除</button></td></tr>`;
+    });
+  });
+}
+
+function delModel(id) {
+  if (!confirm('删除模型 #' + id + '?')) return;
+  fetch('/api/models/delete', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({table:'model_1m', id}) }).then(() => loadModels());
+}
+
+function loadSignals() {
+  fetch('/api/signals').then(r => r.json()).then(rows => {
+    const tb = document.getElementById('signal-rows');
+    tb.innerHTML = '';
+    rows.forEach(s => tb.innerHTML +=
+      `<tr><td>${s.model_id}</td><td>${TYPE[s.model_type]||s.model_type}</td>
+       <td>${s.last}</td><td>${s.time}</td></tr>`);
+  });
+}
+
+function loadPnl() {
+  fetch('/api/pnl').then(r => r.json()).then(res => {
+    const tb = document.getElementById('pnl-rows');
+    tb.innerHTML = '';
+    res.trades.forEach(t => {
+      const cls = t.profit >= 0 ? 'up' : 'down';
+      tb.innerHTML += `<tr><td>${t.side==='long'?'多仓':'空仓'}</td><td>${t.open}</td>
+        <td>${t.close}</td><td class="${cls}">${t.profit}</td>
+        <td class="${cls}">${t.rate}%</td><td>${t.time}</td></tr>`;
+    });
+    const el = document.getElementById('pnl-total');
+    el.textContent = '总收益 ' + res.total;
+    el.className = res.total >= 0 ? 'up' : 'down';
+  });
+}
+
+loadModels(); loadSignals(); loadPnl();
+setInterval(() => { loadSignals(); loadPnl(); }, 20000);
+</script>
+{% endblock %}

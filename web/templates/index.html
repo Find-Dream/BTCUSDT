@@ -1,0 +1,912 @@
+{% extends "base.html" %}
+{% block title %}K线图 / 回溯分析 - 量化交易{% endblock %}
+{% block nav_index %}active{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.css">
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/zh.js"></script>
+<style>
+  .flatpickr-input { cursor: pointer; }
+  .flatpickr-calendar { z-index: 9999 !important; }
+  .time-btn { background:transparent;color:#a7b1c2;border:1px solid #2b3648;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap; }
+  .time-btn.active { background:#f0b90b;color:#161b22;border-color:#f0b90b; }
+  .time-btn:hover { opacity:.85; }
+  .zoom-btn { background:transparent;color:#a7b1c2;border:1px solid #2b3648;border-radius:4px;padding:3px 14px;font-size:18px;line-height:1;font-weight:700;cursor:pointer;transition:background .15s,color .15s; }
+  .zoom-btn:hover { background:#f0b90b;color:#161b22;border-color:#f0b90b; }
+  .zoom-row { display:flex;align-items:center;gap:8px;padding:6px 2px 0;user-select:none; }
+  .zoom-pct { font-size:12px;color:#7d8899; }
+  /* 日志按钮动效 */
+  @keyframes log-pulse { 0%,100%{box-shadow:0 0 0 0 rgba(240,185,11,.5)} 50%{box-shadow:0 0 0 6px rgba(240,185,11,0)} }
+  @keyframes bar-stripe { 0%{background-position:0 0} 100%{background-position:32px 0} }
+  .log-running { animation:log-pulse 1.2s ease infinite!important; border-color:#f0b90b!important; color:#f0b90b!important; }
+  /* 日志弹窗 */
+  #log-modal { position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:center;justify-content:center; }
+  #log-modal-box { background:#161b22;border:1px solid #263041;border-radius:10px;width:700px;max-width:95vw;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.6); }
+  #log-modal-head { padding:12px 16px;border-bottom:1px solid #263041;display:flex;align-items:center;justify-content:space-between;flex-shrink:0; }
+  #log-modal-body { flex:1;overflow-y:auto;padding:12px 16px;font-family:monospace;font-size:12px;line-height:1.8;color:#9aa5b5;background:#0a0d11; }
+  /* 图表右上角汇总覆盖 */
+  #bt-summary-overlay { background:transparent; }
+  .sov-row { display:flex;gap:16px;margin-bottom:4px; }
+  .sov-item { text-align:center; }
+  .sov-label { font-size:10px;color:#7d8899;margin-bottom:1px; }
+  .sov-val { font-size:17px;font-weight:700; }
+  .sov-sub { font-size:10px;color:#7d8899;margin-top:1px; }
+  /* 结果区两栏网格 */
+  .bt-row { display:grid;gap:12px;margin-bottom:12px; }
+  .bt-row.r2 { grid-template-columns:3fr 2fr; }
+  .bt-row.r1 { grid-template-columns:1fr; }
+  .bt-card { background:#161b22;border:1px solid #263041;border-radius:8px;padding:14px;overflow:hidden; }
+  .bt-card h3 { font-size:13px;color:#e6edf3;margin-bottom:10px;display:flex;align-items:center;gap:8px; }
+  .bt-card h3 .ct { font-size:11px;color:#7d8899;font-weight:400; }
+  /* 紧凑表格 */
+  .ct-table { width:100%;border-collapse:collapse;font-size:12px; }
+  .ct-table th { color:#7d8899;font-weight:500;padding:5px 8px;border-bottom:1px solid #1f2733;white-space:nowrap; }
+  .ct-table td { padding:5px 8px;border-bottom:1px solid #141a23; }
+  .ct-table tr:hover td { background:#1a222e; }
+  .ct-table tr:last-child td { border-bottom:none; }
+  .tag { display:inline-block;padding:1px 6px;border-radius:3px;font-size:11px;font-weight:600; }
+  .tag-up { background:#1c3a2e;color:#4ade80; } .tag-dn { background:#3a1c1c;color:#f87171; }
+  .tag-buy { background:#163320;color:#22c55e; } .tag-sell { background:#2a1414;color:#f87171; }
+</style>
+{% endblock %}
+{% block content %}
+
+<!-- ══════════════════ 实时 K 线图 ══════════════════ -->
+<div class="card">
+  <!-- 统一控制栏 -->
+  <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px;">
+    <button id="btn-24h" class="time-btn active" onclick="setLast24h()">最近24小时</button>
+    <div>
+      <label>开始日期</label>
+      <input id="start-pick" type="text" placeholder="📅 选择日期" style="width:140px;" readonly>
+    </div>
+    <div>
+      <label>结束日期</label>
+      <input id="end-pick" type="text" placeholder="📅 选择日期" style="width:140px;" readonly>
+    </div>
+    <div>
+      <label>K线周期</label>
+      <select id="bar" style="width:110px;">
+        <option value="1m">1 分钟</option>
+        <option value="5m">5 分钟</option>
+        <option value="15m">15 分钟</option>
+      </select>
+    </div>
+    <button onclick="runBacktest()" id="run-btn">▶ 开始回溯</button>
+    <button class="ghost" onclick="loadChart()" id="live-load-btn">↺ 加载K线</button>
+    <button id="bt-back-btn" onclick="loadChart()" style="display:none;
+            background:#1c3a2e;color:#4ade80;border:1px solid #4ade80;
+            padding:6px 14px;font-size:13px;border-radius:4px;cursor:pointer;font-weight:600;">
+      ← 返回实时行情
+    </button>
+    <!-- 日志图标按钮 -->
+    <button id="log-btn" class="ghost" onclick="toggleLogModal()" title="查看回溯日志"
+            style="padding:5px 11px;font-size:15px;position:relative;display:none;">
+      📋
+      <span id="log-dot" style="position:absolute;top:3px;right:3px;width:7px;height:7px;
+            background:#f0b90b;border-radius:50%;display:none;"></span>
+    </button>
+    <span id="bt-msg" style="font-size:13px;"></span>
+  </div>
+  <div style="display:flex;align-items:center;gap:16px;margin-bottom:8px;flex-wrap:wrap;">
+    <span id="live-range" style="font-size:12px;color:#7d8899;"></span>
+    <span id="pos-info" style="font-size:13px;color:#9aa5b5;"></span>
+    <!-- 回溯汇总：与日历控件同行，回溯后显示 -->
+    <div id="bt-summary-overlay" style="display:flex;align-items:center;gap:14px;
+         margin-left:auto;flex-wrap:wrap;flex-shrink:0;">
+      <div style="width:1px;height:24px;background:#2b3648;flex-shrink:0;"></div>
+      <div class="sov-item">
+        <div class="sov-label">胜率</div>
+        <div class="sov-val" id="sov-wr" style="color:#f0b90b;">—</div>
+      </div>
+      <div class="sov-item">
+        <div class="sov-label">净收益</div>
+        <div class="sov-val" id="sov-net">—</div>
+      </div>
+      <div class="sov-item">
+        <div class="sov-label">成交</div>
+        <div class="sov-val" id="sov-total" style="color:#e6edf3;">—</div>
+        <div class="sov-sub" id="sov-wl"></div>
+      </div>
+      <div style="width:1px;height:24px;background:#2b3648;flex-shrink:0;"></div>
+      <div class="sov-item">
+        <div class="sov-label">开仓</div>
+        <div style="font-size:13px;font-weight:600;color:#22c55e;" id="sov-open">—</div>
+      </div>
+      <div class="sov-item">
+        <div class="sov-label">平仓</div>
+        <div style="font-size:13px;font-weight:600;color:#22d3ee;" id="sov-close">—</div>
+      </div>
+      <div class="sov-item">
+        <div class="sov-label">手续费</div>
+        <div style="font-size:13px;font-weight:600;color:#f87171;" id="sov-fee">—</div>
+      </div>
+    </div>
+  </div>
+  <p style="font-size:12px;color:#7d8899;margin-bottom:8px;">
+    💡 在图上<b>点击任意位置</b>选中时间节点，点击开多/平多/开空/平空按钮后系统现算指纹并入库。
+  </p>
+  <!-- 图表容器 -->
+  <div>
+    <div id="chart" style="width:100%;height:580px;"></div>
+  </div>
+  <!-- 缩放控制 -->
+  <div class="zoom-row">
+    <button class="zoom-btn" onclick="zoomStep(-1)" title="缩小（显示更多K线）">−</button>
+    <button class="zoom-btn" onclick="zoomStep(1)"  title="放大（显示更少K线）">+</button>
+    <span class="zoom-pct" id="zoom-label">100%</span>
+  </div>
+  <!-- 晋升操作栏 -->
+  <div id="promote-bar" style="display:none;margin-top:12px;padding:12px;
+       background:#0e1116;border:1px solid #2b3648;border-radius:6px;
+       flex-direction:column;gap:8px;">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <span style="font-size:13px;">已选中：<b id="sel-time" style="color:#f0b90b;"></b>
+        　价格：<b id="sel-price" style="color:#f0b90b;"></b></span>
+      <button onclick="promoteAt(1)" style="background:#16a34a;border-color:#16a34a;color:#fff;font-weight:600;">开多</button>
+      <button onclick="promoteAt(2)" style="background:#86efac;border-color:#86efac;color:#14532d;font-weight:600;">平多</button>
+      <button onclick="promoteAt(3)" style="background:#dc2626;border-color:#dc2626;color:#fff;font-weight:600;">开空</button>
+      <button onclick="promoteAt(4)" style="background:#fca5a5;border-color:#fca5a5;color:#7f1d1d;font-weight:600;">平空</button>
+      <button class="ghost" onclick="clearSel()">取消</button>
+      <span id="promote-msg" style="font-size:13px;"></span>
+    </div>
+    <div id="fp-row" style="display:none;font-size:12px;color:#9aa5b5;line-height:1.8;">
+      <span style="color:#60a5fa;font-weight:600;">指纹 15 码：</span>
+      <span id="fp-codes" style="font-family:monospace;letter-spacing:2px;"></span>
+      <span style="margin-left:16px;color:#7d8899;" id="fp-fields"></span>
+    </div>
+  </div>
+</div>
+
+<!-- 日志弹窗（固定浮层）-->
+<div id="log-modal" style="display:none;" onclick="if(event.target===this)closeLogModal()">
+  <div id="log-modal-box">
+    <div id="log-modal-head">
+      <span style="font-size:14px;font-weight:600;color:#e6edf3;">
+        📋 回溯运行状态
+        <span id="log-status" style="font-size:12px;font-weight:400;color:#7d8899;margin-left:8px;"></span>
+      </span>
+      <button class="ghost" onclick="closeLogModal()" style="padding:3px 10px;font-size:16px;">✕</button>
+    </div>
+    <!-- 进度条 -->
+    <div id="log-progress-wrap" style="display:none;padding:10px 16px 8px;border-bottom:1px solid #263041;flex-shrink:0;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
+        <span style="font-size:11px;color:#7d8899;">进度</span>
+        <span id="log-progress-pct" style="font-size:12px;color:#f0b90b;font-weight:700;
+              font-variant-numeric:tabular-nums;letter-spacing:.5px;">0.00%</span>
+      </div>
+      <div style="background:#1a222e;border-radius:3px;height:6px;overflow:hidden;">
+        <div id="log-progress-bar" style="height:100%;width:0%;border-radius:3px;
+             transition:width .3s ease;
+             background:repeating-linear-gradient(45deg,#f0b90b,#f0b90b 8px,#d4960a 8px,#d4960a 16px);
+             background-size:32px 32px;
+             animation:bar-stripe .5s linear infinite;"></div>
+      </div>
+    </div>
+    <div id="log-box" class="log-modal-body" style="flex:1;overflow-y:auto;padding:12px 16px;font-family:monospace;font-size:12px;line-height:1.8;color:#9aa5b5;background:#0a0d11;max-height:60vh;"></div>
+  </div>
+</div>
+
+<!-- 回溯结果 -->
+<div id="result-wrap" style="margin-top:0;">
+
+  <!-- 第一行：信号明细 + 失败模型 -->
+  <div class="bt-row r2">
+    <div class="bt-card">
+      <h3>信号明细 <span class="ct" id="sig-count"></span></h3>
+      <div style="max-height:320px;overflow:auto;">
+        <table class="ct-table">
+          <thead><tr><th>动作</th><th>价格</th><th>时间</th><th>模型</th><th>方向分</th><th>定位</th></tr></thead>
+          <tbody id="sig-rows"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="bt-card" id="failed-models-card">
+      <h3>⚠ 失败模型 <span class="ct" id="failed-count"></span></h3>
+      <p style="font-size:11px;color:#7d8899;margin-bottom:8px;">开仓后5根K线价格未如期移动的模型，<a href="/models" style="color:#60a5fa;">→模型管理</a></p>
+      <div style="max-height:280px;overflow:auto;">
+        <table class="ct-table">
+          <thead><tr><th>模型ID</th><th>方向</th><th>反向次数</th><th></th></tr></thead>
+          <tbody id="failed-rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 第二行：成对成交 + 建议晋升 -->
+  <div class="bt-row r2">
+    <div class="bt-card">
+      <h3>成对成交 <span class="ct" id="trade-count"></span></h3>
+      <div style="max-height:320px;overflow:auto;">
+        <table class="ct-table">
+          <thead><tr><th>方向</th><th>原因</th><th>开仓价</th><th>平仓价</th><th>开仓时间</th><th>净收益</th></tr></thead>
+          <tbody id="trade-rows"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="bt-card" id="suggest-card">
+      <h3>💡 建议晋升 <span class="ct" id="suggest-count"></span>
+        <button id="promote-all-btn" onclick="promoteAllSuggests()"
+                style="margin-left:10px;padding:2px 10px;font-size:11px;
+                       background:#1c3a2e;color:#4ade80;border:1px solid #4ade80;
+                       border-radius:3px;cursor:pointer;font-weight:600;">
+          ⚡ 全部晋升
+        </button>
+        <span id="promote-all-msg" style="font-size:11px;color:#7d8899;margin-left:8px;"></span>
+      </h3>
+      <p style="font-size:11px;color:#7d8899;margin-bottom:8px;">有振幅但无模型命中，按振幅排序取前50条</p>
+      <div style="max-height:280px;overflow:auto;">
+        <table class="ct-table">
+          <thead><tr><th>时间</th><th>方向</th><th>振幅</th><th>定位</th><th>晋升</th></tr></thead>
+          <tbody id="suggest-rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div><!-- end result-wrap -->
+
+{% endblock %}
+{% block script %}
+<script>
+// ════════════════════════════════════════
+// 实时 K 线图
+// ════════════════════════════════════════
+const chart = echarts.init(document.getElementById('chart'), 'dark');
+let LAST_K = null, SEL_TS = null, SEL_START = null, SEL_END = null;
+let _zStart = 0, _zEnd = 100;
+
+const _fpStart = flatpickr('#start-pick', {
+  locale:'zh', dateFormat:'Y-m-d', disableMobile:true,
+  onChange(dates, dateStr) {
+    if (!dateStr) return;
+    SEL_START = Math.floor(new Date(dateStr+'T00:00:00').getTime()/1000);
+    _setActive24h(false); _updateLiveRange();
+  }
+});
+const _fpEnd = flatpickr('#end-pick', {
+  locale:'zh', dateFormat:'Y-m-d', disableMobile:true,
+  onChange(dates, dateStr) {
+    if (!dateStr) return;
+    SEL_END = Math.floor(new Date(dateStr+'T00:00:00').getTime()/1000) + 86399;
+    _setActive24h(false); _updateLiveRange();
+  }
+});
+
+function _setActive24h(on) {
+  const b = document.getElementById('btn-24h');
+  b.className = on ? 'time-btn active' : 'time-btn';
+}
+function setLast24h() {
+  SEL_END = Math.floor(Date.now() / 1000);
+  SEL_START = SEL_END - 86400;
+  _fpStart.clear(); _fpEnd.clear();
+  _setActive24h(true); _updateLiveRange(); clearSel(); loadChart();
+}
+function _updateLiveRange() {
+  if (!SEL_START || !SEL_END) return;
+  const f = ts => new Date(ts*1000).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+  document.getElementById('live-range').textContent = f(SEL_START) + ' → ' + f(SEL_END);
+}
+function _syncZoomUI() {
+  document.getElementById('zoom-label').textContent = Math.round(_zEnd - _zStart) + '%';
+}
+function _applyZoom() {
+  chart.dispatchAction({ type:'dataZoom', dataZoomIndex:0, start:_zStart, end:_zEnd });
+  _syncZoomUI();
+}
+function zoomStep(dir) {
+  const STEP = 5, c = (_zStart+_zEnd)/2, h = (_zEnd-_zStart)/2;
+  const nh = Math.min(50, Math.max(2, h - dir*STEP));
+  _zStart = Math.max(0, c-nh); _zEnd = Math.min(100, c+nh);
+  _applyZoom();
+}
+chart.on('datazoom', function(e) {
+  const z = e.batch ? e.batch[0] : e;
+  if (z && z.start !== undefined) { _zStart = z.start; _zEnd = z.end; _syncZoomUI(); }
+});
+
+function loadChart() {
+  if (!SEL_START || !SEL_END) return;
+  const bar = document.getElementById('bar').value;
+  const loadBtn = document.getElementById('live-load-btn');
+  _zStart = 0; _zEnd = 100;
+  // 加载中状态
+  if (loadBtn) { loadBtn.disabled = true; loadBtn.textContent = '⏳ 加载中…'; }
+  chart.showLoading('default', {
+    text: '正在拉取 K 线数据…', color: '#f0b90b', textColor: '#9aa5b5',
+    maskColor: 'rgba(10,13,17,0.7)', fontSize: 13
+  });
+  Promise.all([
+    fetch(`/api/kline?bar=${bar}&start=${SEL_START}&end=${SEL_END}`).then(r=>r.json()),
+    fetch('/api/signals').then(r=>r.json()),
+    fetch('/api/status').then(r=>r.json())
+  ]).then(([k, signals, status]) => {
+    chart.hideLoading();
+    if (loadBtn) { loadBtn.disabled = false; loadBtn.textContent = '↺ 加载K线'; }
+    _applyLiveChart(k, signals, status);
+    _saveCache();
+  }).catch(() => {
+    chart.hideLoading();
+    if (loadBtn) { loadBtn.disabled = false; loadBtn.textContent = '↺ 加载K线'; }
+  });
+}
+
+function _applyLiveChart(k, signals, status) {
+  LAST_K = k;
+  document.getElementById('bt-back-btn').style.display = 'none';
+  // 返回实时时隐藏汇总，重置为初始占位状态
+  ['sov-wr','sov-net','sov-total','sov-wl','sov-open','sov-close','sov-fee']
+    .forEach(id => { const el=document.getElementById(id); if(el) el.textContent='—'; });
+  document.getElementById('sov-net').style.color = '#e6edf3';
+  _syncZoomUI(); _updateLiveRange();
+  const m = {0:'禁止',1:'只多',2:'只空',3:'双向'};
+  if (status) {
+    document.getElementById('pos-info').textContent =
+      `多仓 均价${status.long.avg} 张${status.long.sz} | 空仓 均价${status.short.avg} 张${status.short.sz} | 方向许可 ${m[status.pos_ok]??status.pos_ok}`;
+  }
+  const marks = (signals||[]).filter(s=>k.times.includes(s.time)).map(s=>{
+    const nm = {1:'开多',2:'平多',3:'开空',4:'平空'};
+    return { name:nm[s.model_type]||'?', coord:[s.time,s.last],
+             value:nm[s.model_type]||'?',
+             itemStyle:{color:(s.model_type===1||s.model_type===4)?'#4ade80':'#f87171'} };
+  });
+  const volData = (k.volumes||[]).map((v,i)=>({
+    value:v, itemStyle:{color:(k.candles[i][1]>=k.candles[i][0])?'#4ade80':'#f87171',opacity:.7}
+  }));
+  chart.setOption({
+    backgroundColor:'transparent',
+    tooltip:{trigger:'axis',axisPointer:{type:'cross'},
+      formatter(params){
+        let h=params[0].axisValueLabel+'<br>';
+        params.forEach(p=>{
+          if(p.seriesName==='K线') h+=`开:<b>${p.data[0]}</b> 收:<b>${p.data[1]}</b> 低:${p.data[2]} 高:${p.data[3]}<br>`;
+          else if(p.seriesName==='成交量') h+=`成交量: <b>${p.data.value??p.data}</b><br>`;
+          else h+=`${p.seriesName}: ${p.data??'-'}<br>`;
+        }); return h;
+      }},
+    legend:{data:['K线','MA5','MA10','MA20'],textStyle:{color:'#a7b1c2'},top:4},
+    grid:[
+      {left:70,right:20,top:36,bottom:'30%'},
+      {left:70,right:20,top:'74%',bottom:36}
+    ],
+    xAxis:[
+      {type:'category',data:k.times,boundaryGap:true,gridIndex:0,
+       axisLine:{lineStyle:{color:'#2b3648'}},axisLabel:{show:false}},
+      {type:'category',data:k.times,boundaryGap:true,gridIndex:1,
+       axisLine:{lineStyle:{color:'#2b3648'}},axisLabel:{color:'#7d8899',fontSize:11}}
+    ],
+    yAxis:[
+      {scale:true,gridIndex:0,axisLine:{lineStyle:{color:'#2b3648'}},
+       splitLine:{lineStyle:{color:'#1a222e'}},axisLabel:{color:'#9aa5b5'}},
+      {scale:false,gridIndex:1,axisLine:{lineStyle:{color:'#2b3648'}},
+       splitLine:{show:false},axisLabel:{color:'#7d8899',fontSize:10,formatter:v=>v>=1000?(v/1000).toFixed(1)+'k':v}}
+    ],
+    dataZoom:[{type:'inside',xAxisIndex:[0,1],start:_zStart,end:_zEnd}],
+    series:[
+      {name:'K线',type:'candlestick',data:k.candles,xAxisIndex:0,yAxisIndex:0,
+       barMaxWidth:8,barMinWidth:2,
+       itemStyle:{color:'#4ade80',color0:'#f87171',borderColor:'#4ade80',borderColor0:'#f87171'},
+       markPoint:{symbol:'pin',symbolSize:30,data:marks,label:{fontSize:9,color:'#161b22'}}},
+      {name:'MA5', type:'line',data:k.ma.m5, smooth:true,showSymbol:false,xAxisIndex:0,yAxisIndex:0,lineStyle:{width:1,color:'#f0b90b'}},
+      {name:'MA10',type:'line',data:k.ma.m10,smooth:true,showSymbol:false,xAxisIndex:0,yAxisIndex:0,lineStyle:{width:1,color:'#60a5fa'}},
+      {name:'MA20',type:'line',data:k.ma.m20,smooth:true,showSymbol:false,xAxisIndex:0,yAxisIndex:0,lineStyle:{width:1,color:'#c084fc'}},
+      {name:'成交量',type:'bar',data:volData,xAxisIndex:1,yAxisIndex:1,barMaxWidth:8,barMinWidth:1}
+    ]
+  }, true);
+}
+
+chart.getZr().on('click', function(event){
+  if(!LAST_K||!LAST_K.ts.length) return;
+  const pt = chart.convertFromPixel({seriesIndex:0},[event.offsetX,event.offsetY]);
+  let idx = (pt&&pt[0]>=0&&pt[0]<LAST_K.ts.length) ? Math.round(pt[0]) : LAST_K.ts.length-1;
+  idx = Math.max(0,Math.min(idx,LAST_K.ts.length-1));
+  SEL_TS = LAST_K.ts[idx];
+  document.getElementById('sel-time').textContent  = LAST_K.times[idx];
+  document.getElementById('sel-price').textContent = LAST_K.candles[idx][1];
+  document.getElementById('promote-bar').style.display = 'flex';
+  document.getElementById('promote-msg').textContent = '';
+  document.getElementById('fp-row').style.display = 'none';
+});
+
+function clearSel() {
+  SEL_TS = null;
+  document.getElementById('promote-bar').style.display = 'none';
+}
+function promoteAt(type) {
+  if(!SEL_TS) return;
+  const bar = document.getElementById('bar').value;
+  fetch('/api/models/promote',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({type,ts:SEL_TS,bar})})
+  .then(r=>r.json()).then(res=>{
+    const m = document.getElementById('promote-msg');
+    if(res.ok){ m.textContent=`✓ 已晋升 #${res.id}（${res.table}，${res.when}）`; m.className='up'; }
+    else       { m.textContent='✗ '+(res.msg||'晋升失败'); m.className='down'; }
+    if(res.codes){
+      const fp=res.codes, groups=[];
+      for(let i=0;i<5;i++) groups.push('t'+(i+1)+':'+fp.slice(i*3,i*3+3).join(','));
+      document.getElementById('fp-codes').textContent = fp.join(' ');
+      document.getElementById('fp-fields').textContent = groups.join('  ');
+      document.getElementById('fp-row').style.display = 'block';
+    }
+    setTimeout(()=>m.textContent='',5000);
+  });
+}
+
+document.getElementById('bar').addEventListener('change',()=>{clearSel();loadChart();});
+window.addEventListener('resize',()=>{ chart.resize(); });
+
+// ──────────────── sessionStorage 缓存 ────────────────
+const _CK = { live:'kc_live', bt:'kc_bt' };
+
+function _saveCache() {
+  try {
+    sessionStorage.setItem(_CK.live, JSON.stringify({
+      k: LAST_K, selStart: SEL_START, selEnd: SEL_END,
+      bar: document.getElementById('bar').value,
+      zStart: _zStart, zEnd: _zEnd,
+    }));
+  } catch(e) { /* 容量超限时静默失败 */ }
+}
+
+function _saveBtCache() {
+  try {
+    sessionStorage.setItem(_CK.bt, JSON.stringify({
+      result: _lastResult,
+      bar: _currentBar,
+    }));
+  } catch(e) {}
+}
+
+function _restoreCache() {
+  let restored = false;
+  // 恢复实时 K 线
+  try {
+    const raw = sessionStorage.getItem(_CK.live);
+    if (raw) {
+      const c = JSON.parse(raw);
+      SEL_START = c.selStart; SEL_END = c.selEnd;
+      _zStart = c.zStart ?? 0; _zEnd = c.zEnd ?? 100;
+      if (c.bar) document.getElementById('bar').value = c.bar;
+      _setActive24h(false); _updateLiveRange();
+      if (c.k) { _applyLiveChart(c.k, [], null); restored = true; }
+    }
+  } catch(e) {}
+  if (!restored) setLast24h();
+
+  // 恢复回溯结果
+  try {
+    const raw = sessionStorage.getItem(_CK.bt);
+    if (raw) {
+      const c = JSON.parse(raw);
+      _currentBar = c.bar || '1m';
+      if (c.result) renderResult(c.result);
+    }
+  } catch(e) {}
+}
+
+// ──────────────── 日志弹窗 ────────────────
+function toggleLogModal() {
+  const m = document.getElementById('log-modal');
+  m.style.display = m.style.display === 'none' ? 'flex' : 'none';
+  if (m.style.display === 'flex') {
+    document.getElementById('log-dot').style.display = 'none';
+    const b = document.getElementById('log-modal-body') || document.getElementById('log-box');
+    if (b) b.scrollTop = b.scrollHeight;
+  }
+}
+function closeLogModal() { document.getElementById('log-modal').style.display = 'none'; }
+document.addEventListener('keydown', e => { if(e.key==='Escape') closeLogModal(); });
+
+// ── 进度条控制 ──
+function _showProgress() {
+  document.getElementById('log-progress-wrap').style.display = 'block';
+  document.getElementById('log-progress-bar').style.width = '0%';
+  document.getElementById('log-progress-pct').textContent = '0.00%';
+}
+function _updateProgress(pct) {
+  const bar = document.getElementById('log-progress-bar');
+  const pctEl= document.getElementById('log-progress-pct');
+  bar.style.width = Math.min(100, pct) + '%';
+  pctEl.textContent = pct.toFixed(2) + '%';
+  // 100% 时改为纯色（去掉条纹动画）
+  if (pct >= 100) {
+    bar.style.animation = 'none';
+    bar.style.background = '#4ade80';
+  }
+}
+function _hideProgress() {
+  setTimeout(() => {
+    document.getElementById('log-progress-wrap').style.display = 'none';
+  }, 1800);
+}
+// 初始化：优先从 sessionStorage 恢复，否则加载最近24小时
+_restoreCache();
+
+// ── 各栏默认占位（回溯前显示暂无数据）──
+(function initPlaceholders() {
+  const EMPTY = cols => `<tr><td colspan="${cols}" style="text-align:center;color:#7d8899;padding:16px;">暂无数据，请先点击「▶ 开始回溯」</td></tr>`;
+  document.getElementById('sig-rows').innerHTML    = EMPTY(6);
+  document.getElementById('trade-rows').innerHTML  = EMPTY(6);
+  document.getElementById('failed-rows').innerHTML = EMPTY(4);
+  document.getElementById('suggest-rows').innerHTML= EMPTY(5);
+  document.getElementById('sig-count').textContent    = '';
+  document.getElementById('trade-count').textContent  = '';
+  document.getElementById('failed-count').textContent = '';
+  document.getElementById('suggest-count').textContent= '';
+})();
+
+// ════════════════════════════════════════
+// 回溯分析
+// ════════════════════════════════════════
+let _lastResult = null, _currentBar = '1m';
+
+const SIG = {
+  1:{name:'开多',color:'#22c55e'}, 2:{name:'平多',color:'#22d3ee'},
+  3:{name:'开空',color:'#f87171'}, 4:{name:'平空',color:'#fb923c'},
+  5:{name:'加多',color:'#86efac'}, 6:{name:'加空',color:'#fda4af'},
+  7:{name:'止损多',color:'#ef4444'}, 8:{name:'止损空',color:'#f97316'},
+};
+
+function appendLog(msg) {
+  const box=document.getElementById('log-box'), line=document.createElement('div');
+  if(msg.includes('命中')) line.style.color=(msg.includes('开多')||msg.includes('平空'))?'#4ade80':'#f87171';
+  else if(msg.startsWith('✓')) { line.style.color='#f0b90b'; line.style.fontWeight='600'; }
+  else if(msg.startsWith('⚠')||msg.startsWith('✗')) line.style.color='#f87171';
+  line.textContent=msg; box.appendChild(line); box.scrollTop=box.scrollHeight;
+}
+
+function goToIdx(idx) {
+  if(!_lastResult) return;
+  const total=_lastResult.times.length, half=Math.max(20,Math.floor(total*.05));
+  chart.dispatchAction({type:'dataZoom',dataZoomIndex:0,
+    startValue:Math.max(0,idx-half), endValue:Math.min(total-1,idx+half)});
+  document.getElementById('chart').scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+async function runBacktest() {
+  if(!SEL_START||!SEL_END) {
+    const m=document.getElementById('bt-msg');
+    m.textContent='✗ 请先选择时间范围'; m.style.color='#f87171'; return;
+  }
+  const btn=document.getElementById('run-btn'), msg=document.getElementById('bt-msg');
+  const logBox=document.getElementById('log-box'), logBtn=document.getElementById('log-btn');
+  btn.disabled=true; btn.textContent='⏳ 运行中…';
+  msg.textContent=''; logBox.innerHTML='';
+  // 显示日志按钮、开始动效、自动弹出日志浮窗、显示进度条
+  logBtn.style.display='inline-block'; logBtn.classList.add('log-running');
+  document.getElementById('log-dot').style.display='none';
+  document.getElementById('log-modal').style.display='flex';
+  document.getElementById('log-status').textContent='● 运行中';
+  document.getElementById('log-status').style.color='#f0b90b';
+  // 重置进度条
+  const progressBar = document.getElementById('log-progress-bar');
+  progressBar.style.animation = 'bar-stripe .5s linear infinite';
+  progressBar.style.background = 'repeating-linear-gradient(45deg,#f0b90b,#f0b90b 8px,#d4960a 8px,#d4960a 16px)';
+  _showProgress();
+  const payload={bar:document.getElementById('bar').value,
+    table:'model_1m', start:SEL_START, end:SEL_END};
+  let response;
+  try { response=await fetch('/api/backtest',{method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); }
+  catch(err) {
+    btn.disabled=false; btn.textContent='▶ 开始回溯';
+    logBtn.classList.remove('log-running');
+    msg.textContent='✗ 网络错误: '+err; msg.style.color='#f87171';
+    document.getElementById('log-status').textContent='● 失败'; return;
+  }
+  const reader=response.body.getReader(), decoder=new TextDecoder(); let buffer='';
+  try {
+    while(true) {
+      const{done,value}=await reader.read(); if(done) break;
+      buffer+=decoder.decode(value,{stream:true});
+      const parts=buffer.split('\n\n'); buffer=parts.pop();
+      for(const part of parts) {
+        const line=part.trim(); if(!line.startsWith('data: ')) continue;
+        let evt; try{evt=JSON.parse(line.slice(6));}catch{continue;}
+        if(evt.type==='log') {
+          appendLog(evt.msg);
+        }
+        else if(evt.type==='progress') {
+          _updateProgress(evt.pct);
+        }
+        else if(evt.type==='result') {
+          _updateProgress(100); _hideProgress();
+          renderResult(evt.data);
+          logBtn.classList.remove('log-running');
+          document.getElementById('log-status').textContent='● 完成';
+          document.getElementById('log-status').style.color='#4ade80';
+          // 自动关闭日志浮窗
+          document.getElementById('log-modal').style.display='none';
+        }
+        else if(evt.type==='error') {
+          appendLog('✗ '+evt.msg); msg.textContent='✗ '+evt.msg; msg.style.color='#f87171';
+          logBtn.classList.remove('log-running');
+          document.getElementById('log-status').textContent='● 出错';
+          document.getElementById('log-status').style.color='#f87171';
+          // 出错时保留浮窗供查阅
+        }
+      }
+    }
+  } catch(streamErr) {
+    appendLog('✗ 流式读取异常: '+streamErr);
+    logBtn.classList.remove('log-running');
+  } finally {
+    btn.disabled=false; btn.textContent='▶ 开始回溯';
+  }
+}
+
+function renderResult(res) {
+  _lastResult=res;
+  _currentBar=document.getElementById('bar').value;
+
+  // ── 右上角汇总覆盖层 ──
+  const s=res.summary, has=s.total>0;
+  const netColor=s.net>=0?'#4ade80':'#f87171';
+  document.getElementById('sov-wr').textContent   = has?s.win_rate+'%':'—';
+  document.getElementById('sov-net').textContent  = (s.net>=0?'+':'')+s.net+' USDT';
+  document.getElementById('sov-net').style.color  = netColor;
+  document.getElementById('sov-total').textContent= s.total;
+  document.getElementById('sov-wl').textContent   = has?s.win+'盈 / '+s.lose+'亏':'';
+  document.getElementById('sov-open').textContent = s.open_signals;
+  document.getElementById('sov-close').textContent= s.close_signals;
+  document.getElementById('sov-fee').textContent  = '-'+s.fee+' USDT';
+  document.getElementById('bt-summary-overlay').style.display='flex';
+
+  // 保持当前缩放比例，不重置 _zStart/_zEnd
+  // 把回溯K线数据加载到主图表（与实时模式保持相同的双栏布局）
+  LAST_K = { ts: res.ts, times: res.times, candles: res.candles, volumes: res.volumes||[] };
+  clearSel();
+
+  const sigGrouped={}; [1,2,3,4,5,6,7,8].forEach(t=>{sigGrouped[t]=[];});
+  res.signals.forEach(s=>{if(sigGrouped[s.type]) sigGrouped[s.type].push(s);});
+  const yMax=res.candles.length?Math.max(...res.candles.map(c=>c[3])):0;
+  const yTop=yMax*1.006, total=res.times.length;
+  // 保留当前缩放窗口大小，仅在首次加载时才默认显示最近 300 根
+  if(_zEnd - _zStart < 2) {
+    const zStart=total>300?Math.round((1-300/total)*100):0;
+    _zStart=zStart; _zEnd=100;
+  }
+
+  const scatterSeries=[1,2,3,4,5,6,7,8].map(type=>({
+    name:SIG[type].name, type:'scatter',
+    data:sigGrouped[type].map(s=>[s.idx,yTop]),
+    symbol:'circle', symbolSize:9, itemStyle:{color:SIG[type].color}, z:10,
+    xAxisIndex:0, yAxisIndex:0,
+    tooltip:{formatter:p=>{const sig=sigGrouped[type][p.dataIndex];
+      return sig?`${SIG[type].name}  ${sig.time}<br/>价格 ${sig.price} USDT  模型#${sig.model_id}`
+               +'<br/>方向分: '+(sig.direction_score!=null?sig.direction_score:'-'):'';}}
+  }));
+
+  const volData=(res.volumes||[]).map((v,i)=>({
+    value:v, itemStyle:{color:(res.candles[i][1]>=res.candles[i][0])?'#4ade80':'#f87171',opacity:.7}
+  }));
+
+  chart.setOption({
+    backgroundColor:'transparent',
+    tooltip:{trigger:'axis',axisPointer:{type:'cross'},
+      formatter(params){
+        let h=params[0].axisValueLabel+'<br>';
+        params.forEach(p=>{
+          if(p.seriesName==='K线') h+=`开:<b>${p.data[0]}</b> 收:<b>${p.data[1]}</b> 低:${p.data[2]} 高:${p.data[3]}<br>`;
+          else if(p.seriesName==='成交量') h+=`成交量: <b>${p.data.value??p.data}</b><br>`;
+          else if(SIG[Object.keys(SIG).find(k=>SIG[k].name===p.seriesName)]) return;
+          else h+=`${p.seriesName}: ${p.data??'-'}<br>`;
+        }); return h;
+      }},
+    legend:{data:['K线','MA5','MA10','MA20','开多','平多','开空','平空','加多','加空','止损多','止损空'],textStyle:{color:'#a7b1c2'},top:4},
+    grid:[
+      {left:70,right:20,top:36,bottom:'30%'},
+      {left:70,right:20,top:'74%',bottom:36}
+    ],
+    xAxis:[
+      {type:'category',data:res.times,boundaryGap:true,gridIndex:0,
+       axisLine:{lineStyle:{color:'#2b3648'}},axisLabel:{show:false}},
+      {type:'category',data:res.times,boundaryGap:true,gridIndex:1,
+       axisLine:{lineStyle:{color:'#2b3648'}},axisLabel:{color:'#7d8899',fontSize:11}}
+    ],
+    yAxis:[
+      {scale:true,gridIndex:0,axisLine:{lineStyle:{color:'#2b3648'}},
+       splitLine:{lineStyle:{color:'#1a222e'}},axisLabel:{color:'#9aa5b5'}},
+      {scale:false,gridIndex:1,axisLine:{lineStyle:{color:'#2b3648'}},
+       splitLine:{show:false},axisLabel:{color:'#7d8899',fontSize:10,formatter:v=>v>=1000?(v/1000).toFixed(1)+'k':v}}
+    ],
+    dataZoom:[{type:'inside',xAxisIndex:[0,1],start:_zStart,end:_zEnd}],
+    series:[
+      {name:'K线',type:'candlestick',data:res.candles,xAxisIndex:0,yAxisIndex:0,
+       barMaxWidth:8,barMinWidth:2,
+       itemStyle:{color:'#4ade80',color0:'#f87171',borderColor:'#4ade80',borderColor0:'#f87171'}},
+      {name:'MA5', type:'line',data:res.ma.m5, smooth:true,showSymbol:false,xAxisIndex:0,yAxisIndex:0,lineStyle:{width:1,color:'#f0b90b'}},
+      {name:'MA10',type:'line',data:res.ma.m10,smooth:true,showSymbol:false,xAxisIndex:0,yAxisIndex:0,lineStyle:{width:1,color:'#60a5fa'}},
+      {name:'MA20',type:'line',data:res.ma.m20,smooth:true,showSymbol:false,xAxisIndex:0,yAxisIndex:0,lineStyle:{width:1,color:'#c084fc'}},
+      {name:'成交量',type:'bar',data:volData,xAxisIndex:1,yAxisIndex:1,barMaxWidth:8,barMinWidth:1},
+      ...scatterSeries
+    ]
+  }, true);
+  _syncZoomUI();
+  // 滚动到主图并显示"返回实时行情"按钮
+  document.getElementById('chart').scrollIntoView({behavior:'smooth',block:'start'});
+  document.getElementById('bt-back-btn').style.display='inline-block';
+  document.getElementById('live-range').textContent=
+    `[回溯] ${res.times[0]} → ${res.times[res.times.length-1]}  共 ${total} 根 ${_currentBar}`;
+
+  // 信号明细
+  document.getElementById('sig-count').textContent=`共 ${res.signals.length} 条`;
+  // 信号明细（紧凑版）
+  document.getElementById('sig-count').textContent=`${res.signals.length} 条`;
+  const tb=document.getElementById('sig-rows');
+  if(!res.signals.length) { tb.innerHTML='<tr><td colspan="6" style="text-align:center;color:#7d8899;padding:16px">无命中信号</td></tr>'; }
+  else {
+    tb.innerHTML=res.signals.map(sig=>{
+      const c=SIG[sig.type]||{color:'#fff',name:'?'};
+      const ds=sig.direction_score!=null
+        ?`<span style="color:${sig.direction_score>=0?'#4ade80':'#f87171'};font-weight:600">${sig.direction_score>0?'+':''}${sig.direction_score}</span>`:'—';
+      const tag=`<span class="tag" style="background:${c.color}22;color:${c.color}">${c.name}</span>`;
+      return `<tr style="cursor:pointer" onclick="goToIdx(${sig.idx})">
+        <td>${tag}</td>
+        <td style="font-variant-numeric:tabular-nums;color:#e6edf3">${sig.price.toLocaleString()}</td>
+        <td style="color:#7d8899">${sig.time}</td>
+        <td style="color:#60a5fa">${sig.model_id?'#'+sig.model_id:'—'}</td>
+        <td>${ds}</td>
+        <td><button class="ghost" style="padding:2px 7px;font-size:11px"
+            onclick="event.stopPropagation();goToIdx(${sig.idx})">定位</button></td>
+      </tr>`;
+    }).join('');
+  }
+
+  // 成对成交（紧凑版）
+  document.getElementById('trade-count').textContent=`${(res.trades||[]).length} 笔`;
+  const tb2=document.getElementById('trade-rows');
+  if(!res.trades||!res.trades.length) { tb2.innerHTML='<tr><td colspan="6" style="text-align:center;color:#7d8899;padding:16px">无成对成交记录</td></tr>'; }
+  else {
+    tb2.innerHTML=res.trades.map(t=>{
+      const sideTag=t.side==='long'
+        ?'<span class="tag tag-buy">多</span>':'<span class="tag tag-sell">空</span>';
+      const reasTag = t.reason === '止损'
+        ? `<span class="tag ${t.net>=0?'tag-up':'tag-dn'}">${t.net>=0?'价格反向波动':'止损'}</span>`
+        : '<span class="tag tag-up">止盈</span>';
+      const netCls=t.net>=0?'up':'down';
+      return `<tr>
+        <td>${sideTag}</td>
+        <td>${reasTag}</td>
+        <td style="color:#7d8899;font-size:11px">${t.open_price}</td>
+        <td style="color:#7d8899;font-size:11px">${t.close_price}</td>
+        <td style="color:#7d8899;font-size:11px">${t.open_time}</td>
+        <td class="${netCls}" style="font-weight:700;font-size:13px">${t.net>=0?'+':''}${t.net}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  renderFailedModels(res.failed_models||[]);
+  renderSuggestPromotes(res.suggest_promotes||[]);
+  _saveBtCache();
+}
+
+// btZoomStep / btHidePromotePanel / btDoChartPromote 已移除
+// 回溯K线直接使用主图，缩放/晋升复用上方统一控件
+
+function renderFailedModels(list) {
+  const card=document.getElementById('failed-models-card');
+  if(!list||!list.length){ card.style.display='none'; return; }
+  card.style.display='block';
+  document.getElementById('failed-count').textContent=`${list.length} 个`;
+  document.getElementById('failed-rows').innerHTML=list.map(m=>{
+    const sTag=m.side==='long'
+      ?'<span class="tag tag-buy">多</span>':'<span class="tag tag-sell">空</span>';
+    return `<tr id="fmrow-${m.model_id}">
+      <td style="color:#60a5fa;font-weight:600">#${m.model_id}</td>
+      <td>${sTag}</td>
+      <td style="color:#f87171;font-weight:700">${m.fail_count}次</td>
+      <td><button class="ghost" style="padding:2px 8px;font-size:11px;color:#f87171;border-color:#3a1c1c;"
+          onclick="deleteFailedModel(${m.model_id},this)">删除</button></td>
+    </tr>`;
+  }).join('');
+}
+
+async function deleteFailedModel(modelId, btn) {
+  if(!confirm(`确认删除模型 #${modelId}？`)) return;
+  const table = 'model_1m';
+  btn.disabled=true; btn.textContent='⏳';
+  try {
+    const d=await fetch('/api/models/delete',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({table,id:modelId})}).then(r=>r.json());
+    if(d.ok){
+      const row=document.getElementById(`fmrow-${modelId}`);
+      if(row){ row.style.opacity='.3'; row.style.pointerEvents='none'; }
+      btn.textContent='✅'; btn.style.color='#4ade80';
+    } else { btn.disabled=false; btn.textContent='删除'; alert('删除失败'); }
+  } catch(e){ btn.disabled=false; btn.textContent='删除'; }
+}
+
+function renderSuggestPromotes(list) {
+  const card=document.getElementById('suggest-card');
+  if(!list||!list.length){ card.style.display='none'; return; }
+  card.style.display='block';
+  document.getElementById('suggest-count').textContent=`${list.length} 条`;
+  window._suggestList=list;
+  document.getElementById('suggest-rows').innerHTML=list.map((s,i)=>{
+    const dirTag=s.type===1
+      ?'<span class="tag tag-buy">涨</span>':'<span class="tag tag-sell">跌</span>';
+    return `<tr>
+      <td style="color:#7d8899;font-size:11px">${s.time}</td>
+      <td>${dirTag}</td>
+      <td style="color:#f0b90b;font-weight:700">+${s.amp}</td>
+      <td><button class="ghost" style="padding:2px 7px;font-size:11px"
+          onclick="goToIdx(${s.idx})">定位</button></td>
+      <td><button id="sp-btn-${i}" style="padding:2px 8px;font-size:11px"
+          onclick="promoteSuggest(${i},${s.ts},${s.type},this)">晋升</button></td>
+    </tr>`;
+  }).join('');
+}
+
+async function promoteSuggest(i, ts, type, btn) {
+  btn.disabled=true; btn.textContent='⏳';
+  try {
+    const d=await fetch('/api/models/promote',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({type,ts,bar:_currentBar})}).then(r=>r.json());
+    if(d.ok){
+      btn.disabled=false;                     // 取消 disabled 防止浏览器灰化
+      btn.style.pointerEvents='none';          // 改用 pointer-events 阻止重复点击
+      btn.textContent=`✅ #${d.id}`;
+      btn.style.background='#1c3a2e';
+      btn.style.color='#4ade80';
+      btn.style.borderColor='#4ade80';
+    } else {
+      btn.textContent='⚠ 已存在';
+      btn.disabled=false;
+      btn.style.background='transparent';
+      btn.style.color='#f0b90b';
+      btn.style.borderColor='#f0b90b';
+    }
+  } catch(e){ btn.textContent='✗ 错误'; btn.disabled=false; }
+}
+
+async function promoteAllSuggests() {
+  const list = window._suggestList;
+  if (!list || !list.length) return;
+  const allBtn = document.getElementById('promote-all-btn');
+  const msg    = document.getElementById('promote-all-msg');
+  allBtn.disabled = true; allBtn.textContent = '⏳ 晋升中…';
+  msg.textContent = ''; msg.style.color = '#7d8899';
+
+  let success = 0, skip = 0, fail = 0;
+  for (let i = 0; i < list.length; i++) {
+    const s = list[i];
+    // 更新各行按钮状态
+    const rowBtn = document.getElementById(`sp-btn-${i}`);
+    if (rowBtn) { rowBtn.disabled = true; rowBtn.textContent = '⏳'; }
+    msg.textContent = `${i + 1} / ${list.length}`;
+    try {
+      const d = await fetch('/api/models/promote', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({type: s.type, ts: s.ts, bar: _currentBar})
+      }).then(r => r.json());
+      if (d.ok) {
+        success++;
+        if (rowBtn) {
+          rowBtn.disabled = false; rowBtn.style.pointerEvents = 'none';
+          rowBtn.textContent = `✅ #${d.id}`;
+          rowBtn.style.background = '#1c3a2e';
+          rowBtn.style.color = '#4ade80'; rowBtn.style.borderColor = '#4ade80';
+        }
+      } else {
+        skip++;
+        if (rowBtn) {
+          rowBtn.textContent = '⚠ 重复'; rowBtn.disabled = false;
+          rowBtn.style.color = '#f0b90b'; rowBtn.style.borderColor = '#f0b90b';
+        }
+      }
+    } catch(e) {
+      fail++;
+      if (rowBtn) { rowBtn.textContent = '✗'; rowBtn.disabled = false; }
+    }
+  }
+
+  allBtn.disabled = false;
+  allBtn.textContent = '✅ 晋升完成';
+  allBtn.style.background = '#1c3a2e';
+  msg.textContent = `新增 ${success} 条，跳过重复 ${skip} 条${fail ? `，失败 ${fail} 条` : ''}`;
+  msg.style.color = success > 0 ? '#4ade80' : '#7d8899';
+}
+</script>
+{% endblock %}

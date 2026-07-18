@@ -1,0 +1,4 @@
+python-okx>=0.3.0
+Flask>=3.0.0
+PyYAML>=6.0
+# pymysql 已移除，数据库已切换为内置 SQLite

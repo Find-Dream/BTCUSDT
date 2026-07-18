@@ -1,0 +1,55 @@
+runtime:
+  inst_id: BTC-USDT-SWAP
+  bar: 1m
+  kline_limit: 30
+  loop_interval: 1
+  kline_interval: 10
+  situation_interval: 50
+  proxy: http://192.168.2.31:10808
+  domain: https://www.okx.com
+  web_host: 0.0.0.0
+  web_port: 5000
+trade:
+  live_enabled: true
+  confirm_live: I_KNOW_THE_RISK
+  td_mode: cross
+  ord_type: market
+  lever: 1
+  start_sz: 3
+  sz_divisor: 15
+  pos_ok: 3
+  order_ttl: 11
+strategy:
+  ma_spot_band_10: 10
+  ma_spot_band_20: 20
+  ma_line_band: 10
+  amp_open: 10
+  amp_close: 20
+  gap_num: 30
+  gap_num_big: 200
+  gap_count: 5
+  take_profit_long: 1.005
+  take_profit_short: 0.995
+  add_pos_gap: 10
+  add_pos_sz: 3
+  add_pos_enabled: false
+  add_pos_max_times: 3
+  day_range_buffer: 0.05
+  situation_extreme: 1500
+  situation_1h_pct: 0.01
+paths:
+  log_dir: log
+  db_path: data/btcusdt.db
+direction_filter:
+  enabled: true
+  threshold: 6
+  backtest_threshold: 4
+  apply_to_add: false
+  vol_window: 20
+  breakout_window: 20
+  diverge_window: 20
+fng_filter:
+  enabled: true
+  cache_ttl: 3600
+  trend_days: 5
+  trend_threshold: 3.0

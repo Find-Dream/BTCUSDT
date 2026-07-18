@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}量化交易系统{% endblock %}</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  {% block head %}{% endblock %}
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+           background: #0e1116; color: #d5dae2; }
+    header { background: #161b22; padding: 12px 24px; display: flex; align-items: center;
+             gap: 24px; border-bottom: 1px solid #263041; }
+    header h1 { font-size: 16px; color: #f0b90b; }
+    nav a { color: #a7b1c2; text-decoration: none; margin-right: 18px; font-size: 14px; }
+    nav a:hover, nav a.active { color: #f0b90b; }
+    .badge { margin-left: auto; font-size: 12px; padding: 3px 10px; border-radius: 10px; }
+    .badge.sim { background: #1c3a2e; color: #4ade80; }
+    .badge.live { background: #3a1c1c; color: #f87171; }
+    main { padding: 20px 24px; }
+    .card { background: #161b22; border: 1px solid #263041; border-radius: 8px;
+            padding: 16px; margin-bottom: 16px; }
+    .card h2 { font-size: 14px; margin-bottom: 12px; color: #e6edf3; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #1f2733; }
+    th { color: #7d8899; font-weight: 500; }
+    input, select { background: #0e1116; border: 1px solid #2b3648; color: #d5dae2;
+                    padding: 6px 8px; border-radius: 4px; width: 100%; }
+    label { display: block; font-size: 12px; color: #9aa5b5; margin-bottom: 4px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
+    button { background: #f0b90b; color: #161b22; border: none; padding: 8px 18px;
+             border-radius: 4px; cursor: pointer; font-weight: 600; }
+    button.ghost { background: transparent; color: #a7b1c2; border: 1px solid #2b3648; }
+    button:hover { opacity: .9; }
+    .up { color: #4ade80; } .down { color: #f87171; }
+    fieldset { border: 1px solid #263041; border-radius: 6px; padding: 14px; margin-bottom: 16px; }
+    legend { color: #f0b90b; font-size: 13px; padding: 0 6px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>⚡ BTC-USDT 量化交易</h1>
+    <nav>
+      <a href="/" class="{% block nav_index %}{% endblock %}">K线图 / 回测</a>
+      <a href="/settings" class="{% block nav_settings %}{% endblock %}">参数调节</a>
+      <a href="/models" class="{% block nav_models %}{% endblock %}">模型管理</a>
+      <a href="/logs" class="{% block nav_logs %}{% endblock %}">日志</a>
+    </nav>
+    <span id="mode-badge" class="badge sim">模拟盘</span>
+  </header>
+  <main>{% block content %}{% endblock %}</main>
+  <script>
+    // 顶部交易模式标识
+    fetch('/api/status').then(r => r.json()).then(s => {
+      const b = document.getElementById('mode-badge');
+      if (s.live) { b.textContent = '实盘'; b.className = 'badge live'; }
+      else { b.textContent = '模拟盘'; b.className = 'badge sim'; }
+    });
+  </script>
+  {% block script %}{% endblock %}
+</body>
+</html>

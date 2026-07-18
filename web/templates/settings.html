@@ -1,0 +1,299 @@
+{% extends "base.html" %}
+{% block title %}参数调节 - 量化交易{% endblock %}
+{% block nav_settings %}active{% endblock %}
+{% block head %}
+<style>
+  /* ── 顶部保存栏 ── */
+  .save-bar { display:flex; align-items:center; gap:12px; padding:10px 0 16px;
+              position:sticky; top:0; z-index:100; background:#0e1116; }
+  /* ── 分组卡片 ── */
+  .s-card { background:#161b22; border:1px solid #263041; border-radius:8px;
+            padding:16px 20px; margin-bottom:14px; }
+  .s-card h3 { font-size:13px; color:#e6edf3; margin-bottom:14px;
+               display:flex; align-items:center; gap:8px; }
+  .s-card h3 .badge { font-size:11px; font-weight:400; color:#7d8899;
+                      background:#1a2230; padding:2px 8px; border-radius:10px; }
+  /* ── 参数网格 ── */
+  .p-grid { display:grid; grid-template-columns:1fr 1fr; gap:0; }
+  .p-grid.cols1 { grid-template-columns:1fr; }
+  @media(max-width:700px){ .p-grid { grid-template-columns:1fr; } }
+  /* ── 单行参数 ── */
+  .p-row { display:flex; align-items:center; justify-content:space-between;
+           padding:9px 0; border-bottom:1px solid #1a222e; gap:16px; }
+  .p-row:last-child { border-bottom:none; }
+  .p-row + .p-row { }
+  .p-grid .p-row:nth-child(odd)  { padding-right:20px; border-right:1px solid #1a222e; }
+  .p-grid .p-row:nth-child(even) { padding-left:20px; }
+  .p-label { flex:1; }
+  .p-label strong { display:block; font-size:12px; color:#d5dae2; font-weight:600; }
+  .p-label span   { display:block; font-size:11px; color:#7d8899; margin-top:1px; line-height:1.4; }
+  /* ── 输入框 ── */
+  .p-input input[type=text], .p-input input[type=number] {
+    width:130px; background:#0e1116; border:1px solid #2b3648; color:#d5dae2;
+    padding:5px 8px; border-radius:4px; font-size:12px; }
+  .p-input input:focus { outline:none; border-color:#f0b90b; }
+  /* ── Toggle 开关 ── */
+  .toggle { position:relative; display:inline-flex; width:42px; height:22px; flex-shrink:0; }
+  .toggle input { opacity:0; width:0; height:0; }
+  .toggle-slider { position:absolute; inset:0; background:#2b3648; border-radius:11px;
+                   cursor:pointer; transition:.2s; }
+  .toggle-slider:before { content:''; position:absolute; width:16px; height:16px;
+                           left:3px; top:3px; background:#9aa5b5; border-radius:50%;
+                           transition:.2s; }
+  .toggle input:checked + .toggle-slider { background:#f0b90b; }
+  .toggle input:checked + .toggle-slider:before { transform:translateX(20px); background:#161b22; }
+  /* ── 危险色 ── */
+  .warn { color:#f87171; font-size:11px; }
+</style>
+{% endblock %}
+{% block content %}
+
+<div class="save-bar">
+  <button type="button" onclick="saveAll()" style="padding:8px 24px;font-size:14px;">💾 保存</button>
+  <span id="save-msg" style="font-size:13px;"></span>
+  <span style="margin-left:auto;font-size:11px;color:#7d8899;">修改后点保存即热更新 config.yaml，后台下一轮循环生效</span>
+</div>
+
+<!-- ════ 交易设置 ════ -->
+<div class="s-card">
+  <h3>⚡ 交易设置 <span class="badge">trade</span></h3>
+  <div class="p-grid">
+    <div class="p-row">
+      <div class="p-label"><strong>实盘下单</strong><span>开启后向 OKX 发送真实/模拟盘订单，关闭时仅记日志</span></div>
+      <div class="p-input"><label class="toggle"><input type="checkbox" data-section="trade" data-key="live_enabled" data-type="boolean"><span class="toggle-slider"></span></label></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>确认口令</strong><span>必须填 <code style="color:#f0b90b">I_KNOW_THE_RISK</code> 才真实下单</span></div>
+      <div class="p-input"><input type="text" data-section="trade" data-key="confirm_live" data-type="string" style="width:180px;"></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>交易方向许可</strong><span>0=禁止 1=只多 2=只空 3=双向</span></div>
+      <div class="p-input"><input type="number" data-section="trade" data-key="pos_ok" data-type="number" min="0" max="3"></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>保证金模式</strong><span>cross=全仓 / isolated=逐仓</span></div>
+      <div class="p-input"><input type="text" data-section="trade" data-key="td_mode" data-type="string" style="width:100px;"></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>杠杆倍数</strong><span>用于换算下单张数，默认 1</span></div>
+      <div class="p-input"><input type="number" data-section="trade" data-key="lever" data-type="number" min="1"></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>基础仓位 (张)</strong><span>每笔开仓初始张数</span></div>
+      <div class="p-input"><input type="number" data-section="trade" data-key="start_sz" data-type="number" min="1"></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>仓位系数分母</strong><span>实际张数 ≈ 账户可开张数 / 此值</span></div>
+      <div class="p-input"><input type="number" data-section="trade" data-key="sz_divisor" data-type="number" min="1"></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>订单时效 (秒)</strong><span>超时的 pos_log 订单跳过执行</span></div>
+      <div class="p-input"><input type="number" data-section="trade" data-key="order_ttl" data-type="number" min="1"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ════ 策略阈值 ════ -->
+<div class="s-card">
+  <h3>📐 策略阈值 <span class="badge">strategy</span></h3>
+  <div class="p-grid">
+    <div class="p-row">
+      <div class="p-label"><strong>开仓振幅门 (USDT)</strong><span>K线收开价差需大于此值才触发开仓</span></div>
+      <div class="p-input"><input type="number" data-section="strategy" data-key="amp_open" data-type="number"></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>平仓振幅门 (USDT)</strong><span>平仓信号要求的最低振幅</span></div>
+      <div class="p-input"><input type="number" data-section="strategy" data-key="amp_close" data-type="number"></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>多头止盈系数</strong><span>价格 > 均价×此值 才止盈。默认 1.005（+0.5%）</span></div>
+      <div class="p-input"><input type="number" data-section="strategy" data-key="take_profit_long" data-type="number" step="0.001"></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>空头止盈系数</strong><span>价格 < 均价×此值 才止盈。默认 0.995（-0.5%）</span></div>
+      <div class="p-input"><input type="number" data-section="strategy" data-key="take_profit_short" data-type="number" step="0.001"></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>加仓总开关</strong><span>关闭后亏损时不再马丁加仓</span></div>
+      <div class="p-input"><label class="toggle"><input type="checkbox" data-section="strategy" data-key="add_pos_enabled" data-type="boolean"><span class="toggle-slider"></span></label></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>最大加仓次数</strong><span>同一笔持仓允许马丁加仓的上限</span></div>
+      <div class="p-input"><input type="number" data-section="strategy" data-key="add_pos_max_times" data-type="number" min="0"></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>加仓触发阈值 (‰)</strong><span>亏损达此千分比时触发加仓，默认 10（1%）</span></div>
+      <div class="p-input"><input type="number" data-section="strategy" data-key="add_pos_gap" data-type="number"></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>每次加仓量 (张)</strong><span>马丁加仓每次追加的张数</span></div>
+      <div class="p-input"><input type="number" data-section="strategy" data-key="add_pos_sz" data-type="number" min="1"></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>高低位缓冲比例</strong><span>距当日最高/最低价的此比例内禁止开仓（默认 0.05）</span></div>
+      <div class="p-input"><input type="number" data-section="strategy" data-key="day_range_buffer" data-type="number" step="0.01"></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>极端行情价差</strong><span>当前价偏离 24h 均价超此值判为极端，禁止开仓</span></div>
+      <div class="p-input"><input type="number" data-section="strategy" data-key="situation_extreme" data-type="number"></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>1h 形势阈值</strong><span>1h 均价偏离 24h 均价超此比例才判定方向（默认 0.01）</span></div>
+      <div class="p-input"><input type="number" data-section="strategy" data-key="situation_1h_pct" data-type="number" step="0.001"></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>暴跌 gap 阈值</strong><span>连续同向价差超此值触发 gap 准信号</span></div>
+      <div class="p-input"><input type="number" data-section="strategy" data-key="gap_num" data-type="number"></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>极端 gap 阈值</strong><span>任一 gap 超此值确认极端行情，默认 200</span></div>
+      <div class="p-input"><input type="number" data-section="strategy" data-key="gap_num_big" data-type="number"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ════ 方向过滤器 ════ -->
+<div class="s-card">
+  <h3>🔍 方向过滤器 <span class="badge">direction_filter</span></h3>
+  <div class="p-grid">
+    <div class="p-row">
+      <div class="p-label"><strong>启用过滤器</strong><span>关闭后所有开仓跳过多维评分直接放行</span></div>
+      <div class="p-input"><label class="toggle"><input type="checkbox" data-section="direction_filter" data-key="enabled" data-type="boolean"><span class="toggle-slider"></span></label></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>实盘通过阈值</strong><span>总分 ≥+N 允许开多，≤-N 允许开空（4维满分±14）</span></div>
+      <div class="p-input"><input type="number" data-section="direction_filter" data-key="threshold" data-type="number" min="1" max="14"></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>回测通过阈值</strong><span>回测仅趋势+成交量2维（满分±8），建议3~5</span></div>
+      <div class="p-input"><input type="number" data-section="direction_filter" data-key="backtest_threshold" data-type="number" min="1" max="8"></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>加仓也过滤</strong><span>开启后马丁加仓前也需通过方向评分</span></div>
+      <div class="p-input"><label class="toggle"><input type="checkbox" data-section="direction_filter" data-key="apply_to_add" data-type="boolean"><span class="toggle-slider"></span></label></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>均量窗口 (根)</strong><span>计算成交量基准的 K 线根数</span></div>
+      <div class="p-input"><input type="number" data-section="direction_filter" data-key="vol_window" data-type="number" min="5"></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>突破判定窗口 (根)</strong><span>向上/向下突破参考的历史最高最低价窗口</span></div>
+      <div class="p-input"><input type="number" data-section="direction_filter" data-key="breakout_window" data-type="number" min="5"></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>背离检测窗口 (根)</strong><span>量价背离判断使用的线性回归窗口</span></div>
+      <div class="p-input"><input type="number" data-section="direction_filter" data-key="diverge_window" data-type="number" min="5"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ════ 市场情绪指数 ════ -->
+<div class="s-card">
+  <h3>😱 市场情绪指数过滤 <span class="badge">fng_filter</span></h3>
+  <p style="font-size:11px;color:#7d8899;margin-bottom:12px;">
+    分值 ≤20 或 ≥80 停止所有开仓；20–40 禁止开多；60–80 禁止开空；40–60 不限制。
+    趋势判断：近 N 日斜率超阈值时额外限制方向。
+  </p>
+  <div class="p-grid">
+    <div class="p-row">
+      <div class="p-label"><strong>启用市场情绪过滤</strong><span>关闭后忽略市场情绪指数</span></div>
+      <div class="p-input"><label class="toggle"><input type="checkbox" data-section="fng_filter" data-key="enabled" data-type="boolean"><span class="toggle-slider"></span></label></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>数据缓存时间 (秒)</strong><span>接口每日更新，1小时缓存足够（默认 3600）</span></div>
+      <div class="p-input"><input type="number" data-section="fng_filter" data-key="cache_ttl" data-type="number" min="60"></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>趋势计算天数</strong><span>使用近几天分值计算趋势斜率（默认 5）</span></div>
+      <div class="p-input"><input type="number" data-section="fng_filter" data-key="trend_days" data-type="number" min="2"></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>趋势触发阈值 (分/天)</strong><span>每日平均变化超过此值认定趋势（默认 3.0）</span></div>
+      <div class="p-input"><input type="number" data-section="fng_filter" data-key="trend_threshold" data-type="number" step="0.5" min="0.5"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ════ 运行参数 ════ -->
+<div class="s-card">
+  <h3>⚙️ 运行参数 <span class="badge">runtime</span></h3>
+  <div class="p-grid">
+    <div class="p-row">
+      <div class="p-label"><strong>交易标的</strong><span>OKX 合约代码，默认 BTC-USDT-SWAP</span></div>
+      <div class="p-input"><input type="text" data-section="runtime" data-key="inst_id" data-type="string" style="width:180px;"></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>K 线周期</strong><span>主匹配周期：1m / 5m / 15m</span></div>
+      <div class="p-input"><input type="text" data-section="runtime" data-key="bar" data-type="string" style="width:80px;"></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>代理地址</strong><span>HTTP 代理，如 http://192.168.1.1:7890，留空直连</span></div>
+      <div class="p-input"><input type="text" data-section="runtime" data-key="proxy" data-type="string" style="width:200px;"></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>OKX 域名</strong><span>默认 https://www.okx.com</span></div>
+      <div class="p-input"><input type="text" data-section="runtime" data-key="domain" data-type="string" style="width:200px;"></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>主循环间隔 (秒)</strong><span>每隔多少秒运行一次策略决策，默认 1</span></div>
+      <div class="p-input"><input type="number" data-section="runtime" data-key="loop_interval" data-type="number" min="1"></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>K 线抓取根数</strong><span>每次向 OKX 抓取的 K 线数量，默认 30</span></div>
+      <div class="p-input"><input type="number" data-section="runtime" data-key="kline_limit" data-type="number" min="25"></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>形势刷新间隔 (秒)</strong><span>宏观形势（1h/24h/72h 均价）重算频率</span></div>
+      <div class="p-input"><input type="number" data-section="runtime" data-key="situation_interval" data-type="number" min="10"></div>
+    </div>
+    <div class="p-row">
+      <div class="p-label"><strong>Web 服务端口</strong><span>浏览器访问 http://本机IP:此端口，默认 5000</span></div>
+      <div class="p-input"><input type="number" data-section="runtime" data-key="web_port" data-type="number" min="1000"></div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block script %}
+<script>
+const CFG = {{ cfg | tojson }};
+
+// 填入当前值
+document.querySelectorAll('input[data-section]').forEach(inp => {
+  const s = inp.dataset.section, k = inp.dataset.key;
+  const val = (CFG[s] || {})[k];
+  if (val === undefined) return;
+  if (inp.type === 'checkbox') inp.checked = !!val;
+  else inp.value = val;
+});
+
+function saveAll() {
+  const payload = {};
+  document.querySelectorAll('input[data-section]').forEach(inp => {
+    const s = inp.dataset.section, k = inp.dataset.key, t = inp.dataset.type;
+    payload[s] = payload[s] || {};
+    let v;
+    if (inp.type === 'checkbox') v = inp.checked;
+    else if (t === 'number') v = parseFloat(inp.value);
+    else v = inp.value;
+    payload[s][k] = v;
+  });
+  const m = document.getElementById('save-msg');
+  m.textContent = '⏳ 保存中…'; m.style.color = '#f0b90b';
+  fetch('/api/config', { method:'POST', headers:{'Content-Type':'application/json'},
+                         body: JSON.stringify(payload) })
+    .then(r => r.json()).then(res => {
+      m.textContent = res.ok ? '✅ 已保存并热更新' : '✗ 保存失败';
+      m.style.color  = res.ok ? '#4ade80' : '#f87171';
+      setTimeout(() => m.textContent = '', 4000);
+    }).catch(() => {
+      m.textContent = '✗ 网络错误'; m.style.color = '#f87171';
+    });
+}
+
+// Ctrl/Cmd + S 快捷键保存
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveAll(); }
+});
+</script>
+{% endblock %}

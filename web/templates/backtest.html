@@ -1,0 +1,625 @@
+{% extends "base.html" %}
+{% block title %}回测分析 - 量化交易{% endblock %}
+{% block nav_backtest %}active{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.css">
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/zh.js"></script>
+<style>
+  .flatpickr-input { cursor: pointer; }
+  .flatpickr-calendar { z-index: 9999 !important; }
+  .time-btn {
+    background: transparent; color: #a7b1c2;
+    border: 1px solid #2b3648; padding: 6px 14px;
+    border-radius: 4px; cursor: pointer; font-size: 13px;
+    font-weight: 600; white-space: nowrap;
+  }
+  .time-btn.active { background: #f0b90b; color: #161b22; border-color: #f0b90b; }
+  .time-btn:hover { opacity: 0.85; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>回测参数</h2>
+  <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+    <!-- 快捷时间 -->
+    <div>
+      <label>快捷</label>
+      <button id="btn-24h" class="time-btn active" onclick="setLast24h()">最近24小时</button>
+    </div>
+    <!-- 开始日期 -->
+    <div>
+      <label>开始日期</label>
+      <input id="start-pick" type="text" placeholder="📅 选择日期"
+             style="width:140px;" readonly>
+    </div>
+    <!-- 结束日期 -->
+    <div>
+      <label>结束日期</label>
+      <input id="end-pick" type="text" placeholder="📅 选择日期"
+             style="width:140px;" readonly>
+    </div>
+    <!-- K线周期 -->
+    <div>
+      <label>K线周期</label>
+      <select id="bar" style="width:110px;">
+        <option value="1m">1 分钟</option>
+        <option value="5m">5 分钟</option>
+        <option value="15m">15 分钟</option>
+      </select>
+    </div>
+    <!-- 模型库 -->
+    <div>
+      <label>模型库</label>
+      <select id="table" style="width:160px;">
+        <option value="model_1m">model_1m（1分钟）</option>
+        <option value="model_5m">model_5m（5分钟）</option>
+      </select>
+    </div>
+    <button onclick="runBacktest()" id="run-btn">▶ 开始回溯</button>
+    <span id="bt-msg" style="font-size:13px;"></span>
+  </div>
+  <div id="range-label" style="font-size:12px;color:#7d8899;margin-top:8px;"></div>
+  <!-- <p style="font-size:12px;color:#7d8899;margin-top:6px;">
+    回测使用振幅 + 形状闸门，不含宏观形势/gap 等状态性条件。单次时间跨度上限 30 天。
+  </p> -->
+</div>
+
+<!-- 日志控制台 -->
+<div id="log-wrap" style="display:none;" class="card">
+  <h2 style="display:flex;align-items:center;gap:10px;">
+    回测日志
+    <span id="log-status" style="font-size:12px;font-weight:400;color:#7d8899;"></span>
+  </h2>
+  <div id="log-box" style="background:#0a0d11;border:1px solid #1f2733;border-radius:4px;
+    padding:10px 14px;max-height:220px;overflow-y:auto;
+    font-family:monospace;font-size:12px;line-height:1.7;color:#9aa5b5;"></div>
+</div>
+
+<div id="result-wrap" style="display:none;">
+  <!-- 汇总 -->
+  <div class="card">
+    <h2>回测汇总</h2>
+    <div id="summary" style="display:flex;gap:32px;flex-wrap:wrap;font-size:14px;"></div>
+  </div>
+  <!-- K线图 -->
+  <div class="card">
+    <h2>K线图 <span id="chart-range" style="font-size:12px;color:#7d8899;font-weight:400;"></span>
+      <span style="font-size:11px;color:#7d8899;font-weight:400;margin-left:10px;">
+        💡 点击 K线蜡烛可快速晋升为模型
+      </span>
+    </h2>
+    <div id="chart" style="width:100%;height:560px;"></div>
+    <!-- 缩放控制：− + -->
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 2px 0;user-select:none;">
+      <button class="ghost" onclick="btZoomStep(-1)" title="缩小（显示更多K线）"
+              style="padding:3px 14px;font-size:18px;line-height:1;font-weight:700;">−</button>
+      <button class="ghost" onclick="btZoomStep(1)"  title="放大（显示更少K线）"
+              style="padding:3px 14px;font-size:18px;line-height:1;font-weight:700;">+</button>
+      <span id="bt-zoom-label" style="font-size:12px;color:#7d8899;"></span>
+    </div>
+    <!-- 图上点击晋升浮层 -->
+    <div id="promote-panel" style="display:none;margin-top:10px;padding:10px 14px;
+         background:#1a2230;border:1px solid #2e4060;border-radius:6px;
+         display:none;align-items:center;gap:10px;flex-wrap:wrap;">
+      <span style="font-size:13px;color:#9aa5b5;">选中：</span>
+      <span id="promote-info" style="font-size:13px;color:#e6edf3;font-weight:600;"></span>
+      <select id="promote-type" style="width:130px;">
+        <option value="1">开多信号 (涨)</option>
+        <option value="3">开空信号 (跌)</option>
+      </select>
+      <button onclick="doChartPromote()" style="padding:6px 14px;font-size:13px;">晋升为模型</button>
+      <button class="ghost" onclick="hidePromotePanel()" style="padding:6px 12px;font-size:13px;">取消</button>
+      <span id="promote-msg" style="font-size:12px;"></span>
+    </div>
+  </div>
+  <!-- 信号明细 -->
+  <div class="card">
+    <h2>信号明细 <span id="sig-count" style="font-size:12px;color:#7d8899;font-weight:400;"></span></h2>
+    <div style="max-height:360px;overflow:auto;">
+      <table>
+        <thead>
+          <tr><th>#</th><th>动作</th><th>价格 (USDT)</th><th>数量</th><th>时间</th><th>模型ID</th><th>定位</th></tr>
+        </thead>
+        <tbody id="sig-rows"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>成对成交明细</h2>
+    <div style="max-height:300px;overflow:auto;">
+      <table>
+        <thead>
+          <tr><th>#</th><th>方向</th><th>原因</th><th>开仓价</th><th>平仓价</th><th>数量</th><th>开仓时间</th><th>平仓时间</th><th>毛收益</th><th>手续费</th><th>净收益</th></tr>
+        </thead>
+        <tbody id="trade-rows"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 失败模型 ID -->
+  <div class="card" id="failed-models-card" style="display:none;">
+    <h2>⚠ 失败模型 ID
+      <span id="failed-count" style="font-size:12px;color:#7d8899;font-weight:400;margin-left:8px;"></span>
+    </h2>
+    <p style="font-size:12px;color:#7d8899;margin-bottom:10px;">
+      以下模型在开仓后 5 根 K 线内价格未如期移动，建议在
+      <a href="/models" style="color:#60a5fa;">模型管理</a> 页审查或删除。
+    </p>
+    <div style="max-height:240px;overflow:auto;">
+      <table>
+        <thead>
+          <tr><th>模型 ID</th><th>方向</th><th>反向次数</th><th>操作</th></tr>
+        </thead>
+        <tbody id="failed-rows"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 建议晋升模型 -->
+  <div class="card" id="suggest-card" style="display:none;">
+    <h2>💡 建议晋升模型
+      <span id="suggest-count" style="font-size:12px;color:#7d8899;font-weight:400;margin-left:8px;"></span>
+    </h2>
+    <p style="font-size:12px;color:#7d8899;margin-bottom:10px;">
+      以下点位振幅达到开仓门槛但无模型命中，可晋升为新模型以提升覆盖率（按振幅排序，取前 50 条）。
+    </p>
+    <div style="max-height:400px;overflow:auto;">
+      <table>
+        <thead>
+          <tr><th>#</th><th>时间</th><th>方向</th><th>价格 (USDT)</th><th>振幅 (USDT)</th><th>定位</th><th>晋升</th></tr>
+        </thead>
+        <tbody id="suggest-rows"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div><!-- end result-wrap -->
+{% endblock %}
+{% block script %}
+<script>
+// ---- 时间状态 ----
+let SEL_START = null;  // Unix 秒级时间戳
+let SEL_END   = null;
+
+// ---- flatpickr 日历初始化 ----
+const _fpStart = flatpickr('#start-pick', {
+  locale: 'zh', dateFormat: 'Y-m-d', disableMobile: true,
+  onChange(dates, dateStr) {
+    if (!dateStr) return;
+    const d = new Date(dateStr + 'T00:00:00');
+    SEL_START = Math.floor(d.getTime() / 1000);
+    _setActive24h(false);
+    _updateRangeLabel();
+  }
+});
+
+const _fpEnd = flatpickr('#end-pick', {
+  locale: 'zh', dateFormat: 'Y-m-d', disableMobile: true,
+  onChange(dates, dateStr) {
+    if (!dateStr) return;
+    // 结束日期取当天 23:59:59
+    const d = new Date(dateStr + 'T00:00:00');
+    SEL_END = Math.floor(d.getTime() / 1000) + 86399;
+    _setActive24h(false);
+    _updateRangeLabel();
+  }
+});
+
+function setLast24h() {
+  SEL_END   = Math.floor(Date.now() / 1000);
+  SEL_START = SEL_END - 86400;
+  _fpStart.clear();
+  _fpEnd.clear();
+  _setActive24h(true);
+  _updateRangeLabel();
+}
+
+function _setActive24h(on) {
+  const b = document.getElementById('btn-24h');
+  b.className = on ? 'time-btn active' : 'time-btn';
+}
+
+function _updateRangeLabel() {
+  if (!SEL_START || !SEL_END) return;
+  const fmt = ts => new Date(ts * 1000).toLocaleString('zh-CN',
+    {month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'});
+  document.getElementById('range-label').textContent =
+    '时间范围：' + fmt(SEL_START) + ' → ' + fmt(SEL_END);
+}
+
+// 默认最近24小时
+setLast24h();
+
+// ---- 图表 & 结果状态 ----
+let _chart = null, _lastResult = null, _promoteTarget = null, _currentBar = '1m';
+let _btZStart = 0, _btZEnd = 100;   // 回测图缩放区间
+
+function btZoomStep(dir) {
+  const STEP   = 5;
+  const center = (_btZStart + _btZEnd) / 2;
+  const half   = (_btZEnd - _btZStart) / 2;
+  const newHalf = Math.min(50, Math.max(2, half - dir * STEP));
+  _btZStart = Math.max(0,   center - newHalf);
+  _btZEnd   = Math.min(100, center + newHalf);
+  if (_chart) {
+    _chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0,
+      start: _btZStart, end: _btZEnd });
+    document.getElementById('bt-zoom-label').textContent =
+      Math.round(_btZEnd - _btZStart) + '%';
+  }
+}
+const SIG = {
+  1:{name:'开多', color:'#22c55e'},
+  2:{name:'平多', color:'#22d3ee'},
+  3:{name:'开空', color:'#f87171'},
+  4:{name:'平空', color:'#fb923c'},
+  5:{name:'加多', color:'#86efac'},
+  6:{name:'加空', color:'#fda4af'},
+  7:{name:'止损多',color:'#ef4444'},
+  8:{name:'止损空',color:'#f97316'},
+};
+
+function goToIdx(idx) {
+  if (!_chart || !_lastResult) return;
+  const total = _lastResult.times.length;
+  const half  = Math.max(20, Math.floor(total * 0.05));
+  _chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0,
+    startValue: Math.max(0, idx - half), endValue: Math.min(total - 1, idx + half) });
+  document.getElementById('chart').scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+
+function appendLog(msg) {
+  const box  = document.getElementById('log-box');
+  const line = document.createElement('div');
+  if      (msg.includes('命中'))    line.style.color = (msg.includes('开多')||msg.includes('平空')) ? '#4ade80' : '#f87171';
+  else if (msg.startsWith('✓'))     { line.style.color = '#f0b90b'; line.style.fontWeight = '600'; }
+  else if (msg.startsWith('⚠')||msg.startsWith('✗')) line.style.color = '#f87171';
+  line.textContent = msg;
+  box.appendChild(line);
+  box.scrollTop = box.scrollHeight;
+}
+
+async function runBacktest() {
+  if (!SEL_START || !SEL_END) {
+    const msg = document.getElementById('bt-msg');
+    msg.textContent = '✗ 请先选择时间范围'; msg.style.color = '#f87171';
+    return;
+  }
+  const btn = document.getElementById('run-btn'), msg = document.getElementById('bt-msg');
+  const logWrap = document.getElementById('log-wrap'), logBox = document.getElementById('log-box');
+  const logStatus = document.getElementById('log-status');
+
+  btn.disabled = true; btn.textContent = '⏳ 运行中…';
+  msg.textContent = ''; logBox.innerHTML = '';
+  logWrap.style.display = 'block';
+  logStatus.textContent = '● 运行中'; logStatus.style.color = '#f0b90b';
+  document.getElementById('result-wrap').style.display = 'none';
+
+  // 直接传 Unix 时间戳（整数），避免字符串解析歧义
+  const payload = {
+    bar:   document.getElementById('bar').value,
+    table: document.getElementById('table').value,
+    start: SEL_START,
+    end:   SEL_END,
+  };
+
+  let response;
+  try {
+    response = await fetch('/api/backtest', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+    });
+  } catch(err) {
+    btn.disabled = false; btn.textContent = '▶ 开始回溯';
+    msg.textContent = '✗ 网络错误: ' + err; msg.style.color = '#f87171';
+    logStatus.textContent = '● 失败'; logStatus.style.color = '#f87171';
+    return;
+  }
+
+  const reader = response.body.getReader(), decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const {done, value} = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, {stream: true});
+    const parts = buffer.split('\n\n');
+    buffer = parts.pop();
+    for (const part of parts) {
+      const line = part.trim();
+      if (!line.startsWith('data: ')) continue;
+      let evt; try { evt = JSON.parse(line.slice(6)); } catch { continue; }
+      if      (evt.type === 'log')    appendLog(evt.msg);
+      else if (evt.type === 'result') { renderResult(evt.data); logStatus.textContent = '● 完成'; logStatus.style.color = '#4ade80'; }
+      else if (evt.type === 'error')  { appendLog('✗ ' + evt.msg); msg.textContent = '✗ ' + evt.msg; msg.style.color = '#f87171'; logStatus.textContent = '● 出错'; logStatus.style.color = '#f87171'; }
+    }
+  }
+  btn.disabled = false; btn.textContent = '▶ 开始回溯';
+}
+
+function renderResult(res) {
+  _lastResult = res;
+  _currentBar = document.getElementById('bar').value;
+  document.getElementById('result-wrap').style.display = 'block';
+
+  // ---- 汇总 ----
+  const s = res.summary, has = s.total > 0;
+  document.getElementById('summary').innerHTML = `
+    <div style="text-align:center">
+      <div style="font-size:12px;color:#7d8899">完整成交（对）</div>
+      <div style="font-size:22px;font-weight:700">${s.total}</div>
+      ${has ? `<div style="font-size:11px;color:#7d8899">${s.win}盈 / ${s.lose}亏</div>` : ''}
+    </div>
+    <div style="text-align:center">
+      <div style="font-size:12px;color:#7d8899">胜率</div>
+      <div style="font-size:22px;font-weight:700;color:#f0b90b">${has ? s.win_rate + '%' : '—'}</div>
+    </div>
+    <div style="text-align:center">
+      <div style="font-size:12px;color:#7d8899">毛收益</div>
+      <div style="font-size:22px;font-weight:700;color:${s.gross >= 0 ? '#4ade80' : '#f87171'}">${s.gross} <small>USDT</small></div>
+    </div>
+    <div style="text-align:center">
+      <div style="font-size:12px;color:#7d8899">手续费（双边合计）</div>
+      <div style="font-size:22px;font-weight:700;color:#f87171">-${s.fee} <small>USDT</small></div>
+    </div>
+    <div style="text-align:center">
+      <div style="font-size:12px;color:#7d8899">净收益</div>
+      <div style="font-size:26px;font-weight:700;color:${s.net >= 0 ? '#4ade80' : '#f87171'}">${s.net} <small>USDT</small></div>
+    </div>
+    <div style="text-align:center">
+      <div style="font-size:12px;color:#7d8899">命中信号</div>
+      <div style="font-size:14px;color:#22c55e">开仓信号 <b>${s.open_signals}</b></div>
+      <div style="font-size:14px;color:#22d3ee">平仓信号 <b>${s.close_signals}</b></div>
+    </div>`;
+
+  // ---- 图表 ----
+  const barLabel = document.getElementById('bar').value;
+  const rangeText = document.getElementById('range-label').textContent.replace('时间范围：', '');
+  document.getElementById('chart-range').textContent =
+    `${rangeText}  共 ${res.times.length} 根 ${barLabel} K线`;
+
+  if (!_chart) {
+    _chart = echarts.init(document.getElementById('chart'), 'dark');
+    window.addEventListener('resize', () => _chart.resize());
+  }
+
+  // 预分组信号，避免 tooltip 里反复 filter
+  const sigGrouped = {};
+  [1,2,3,4,5,6,7,8].forEach(t => { sigGrouped[t] = []; });
+  res.signals.forEach(s => { if (sigGrouped[s.type]) sigGrouped[s.type].push(s); });
+
+  const yMax = res.candles.length ? Math.max(...res.candles.map(c => c[3])) : 0;
+  const yTop = yMax * 1.006;
+
+  const scatterSeries = [1,2,3,4,5,6,7,8].map(type => ({
+    name: SIG[type].name, type: 'scatter',
+    data: sigGrouped[type].map(s => [s.idx, yTop]),
+    symbol: 'circle', symbolSize: 9, itemStyle: {color: SIG[type].color}, z: 10,
+    tooltip: { formatter: p => {
+      const sig = sigGrouped[type][p.dataIndex];
+      return sig ? `${SIG[type].name}  ${sig.time}<br/>价格 ${sig.price} USDT  模型#${sig.model_id}` : '';
+    }}
+  }));
+
+  // 数据量大时缩小初始渲染窗口，避免首次绘制卡顿
+  const total = res.times.length;
+  const INIT_BARS = 300;  // 初始展示最近 N 根
+  const zoomStart = total > INIT_BARS ? Math.round((1 - INIT_BARS / total) * 100) : 0;
+
+  _chart.setOption({
+    backgroundColor: 'transparent',
+    tooltip: {trigger: 'axis', axisPointer: {type: 'cross'}},
+    legend: {data: ['K线','MA5','MA10','MA20','开多','平多','开空','平空','加多','加空','止损多','止损空'], textStyle: {color: '#a7b1c2'}},
+    grid: {left: 60, right: 20, top: 40, bottom: 60},
+    xAxis: {type: 'category', data: res.times, boundaryGap: true,
+      axisLine: {lineStyle: {color: '#2b3648'}},
+      axisLabel: {formatter: (v, i) => total > 200 && i % Math.ceil(total / 60) !== 0 ? '' : v}},
+    yAxis: {scale: true, axisLine: {lineStyle: {color: '#2b3648'}},
+      splitLine: {lineStyle: {color: '#1a222e'}}},
+    dataZoom: [{type: 'inside', start: zoomStart, end: 100}],
+    series: [
+      {name: 'K线', type: 'candlestick', data: res.candles, barMaxWidth: 8, barMinWidth: 1,
+        itemStyle: {color: '#4ade80', color0: '#f87171', borderColor: '#4ade80', borderColor0: '#f87171'}},
+      {name: 'MA5',  type: 'line', data: res.ma.m5,  smooth: true, showSymbol: false, lineStyle: {width: 1, color: '#f0b90b'}},
+      {name: 'MA10', type: 'line', data: res.ma.m10, smooth: true, showSymbol: false, lineStyle: {width: 1, color: '#60a5fa'}},
+      {name: 'MA20', type: 'line', data: res.ma.m20, smooth: true, showSymbol: false, lineStyle: {width: 1, color: '#c084fc'}},
+      ...scatterSeries
+    ]
+  }, true);
+
+  // ---- 图表点击 → 晋升浮层 ----
+  _chart.off('click');   // 防重复绑定
+  _chart.on('click', function(params) {
+    if (params.componentType !== 'series' || params.seriesType !== 'candlestick') return;
+    const idx   = params.dataIndex;
+    const ts    = _lastResult.ts[idx];
+    const close = _lastResult.candles[idx][1];   // ECharts: [open,close,low,high]
+    const t     = _lastResult.times[idx];
+    _promoteTarget = {idx, ts, price: close, time: t};
+    document.getElementById('promote-info').textContent =
+      `${t}  收盘价 ${close.toLocaleString()} USDT`;
+    // 按振幅猜测默认方向
+    const open_ = _lastResult.candles[idx][0];
+    document.getElementById('promote-type').value = close >= open_ ? '1' : '3';
+    document.getElementById('promote-msg').textContent = '';
+    const panel = document.getElementById('promote-panel');
+    panel.style.display = 'flex';
+  });
+
+  // ---- 信号明细表（批量渲染，避免 innerHTML+= 的 O(n²)）----
+  document.getElementById('sig-count').textContent = `共 ${res.signals.length} 条`;
+  const tb = document.getElementById('sig-rows');
+  if (!res.signals.length) {
+    tb.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#7d8899">无命中信号</td></tr>';
+  } else {
+    const rows = res.signals.map((sig, i) => {
+      const c = SIG[sig.type] || {color: '#fff', name: '?'};
+      const midStr = sig.model_id ? `#${sig.model_id}` : '—';
+      return `<tr style="cursor:pointer" onclick="goToIdx(${sig.idx})">
+        <td>${i + 1}</td>
+        <td><b style="color:${c.color}">${c.name}</b></td>
+        <td>${sig.price}</td><td>${sig.sz}</td><td>${sig.time}</td>
+        <td style="color:#60a5fa">${midStr}</td>
+        <td><button class="ghost" style="padding:3px 8px;font-size:11px"
+            onclick="event.stopPropagation();goToIdx(${sig.idx})">定位</button></td>
+      </tr>`;
+    });
+    tb.innerHTML = rows.join('');
+  }
+
+  // ---- 成对成交明细表（批量渲染）----
+  const tb2 = document.getElementById('trade-rows');
+  if (!tb2) return;
+  if (!res.trades || !res.trades.length) {
+    tb2.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#7d8899">无成对成交记录</td></tr>';
+  } else {
+    const rows2 = res.trades.map((t, i) => {
+      const side = t.side === 'long' ? '<span class="up">多仓</span>' : '<span class="down">空仓</span>';
+      const reas = t.reason === '止损' ? '<span class="down">止损</span>' : '<span class="up">止盈</span>';
+      return `<tr>
+        <td>${i + 1}</td><td>${side}</td><td>${reas}</td>
+        <td>${t.open_price}</td><td>${t.close_price}</td><td>${t.sz}</td>
+        <td>${t.open_time}</td><td>${t.close_time}</td>
+        <td class="${t.gross >= 0 ? 'up' : 'down'}">${t.gross}</td>
+        <td style="color:#f87171">-${t.fee}</td>
+        <td class="${t.net >= 0 ? 'up' : 'down'}" style="font-weight:600">${t.net} <small style="font-weight:400">USDT</small></td>
+      </tr>`;
+    });
+    tb2.innerHTML = rows2.join('');
+  }
+
+  // ---- 新面板 ----
+  hidePromotePanel();
+  renderFailedModels(res.failed_models  || []);
+  renderSuggestPromotes(res.suggest_promotes || []);
+}
+
+// ──────────────────── 图表点击晋升 ────────────────────
+function hidePromotePanel() {
+  const p = document.getElementById('promote-panel');
+  p.style.display = 'none';
+  _promoteTarget = null;
+}
+
+async function doChartPromote() {
+  if (!_promoteTarget) return;
+  const type = parseInt(document.getElementById('promote-type').value);
+  const msg  = document.getElementById('promote-msg');
+  msg.textContent = '⏳ 晋升中…'; msg.style.color = '#f0b90b';
+  try {
+    const r = await fetch('/api/models/promote', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({type, ts: _promoteTarget.ts, bar: _currentBar})
+    });
+    const d = await r.json();
+    if (d.ok) {
+      msg.textContent = `✅ 晋升成功 模型#${d.id}`;
+      msg.style.color = '#4ade80';
+    } else {
+      msg.textContent = '⚠ ' + (d.msg || '晋升失败');
+      msg.style.color = '#f87171';
+    }
+  } catch(e) {
+    msg.textContent = '✗ 网络错误'; msg.style.color = '#f87171';
+  }
+}
+
+// ──────────────────── 失败模型面板 ────────────────────
+function renderFailedModels(list) {
+  const card = document.getElementById('failed-models-card');
+  if (!list || !list.length) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+  document.getElementById('failed-count').textContent = `共 ${list.length} 个模型 ID`;
+  const rows = list.map(m => {
+    const sideStr = m.side === 'long'
+      ? '<span class="up">多仓</span>'
+      : '<span class="down">空仓</span>';
+    return `<tr id="fmrow-${m.model_id}">
+      <td style="color:#60a5fa;font-weight:600">#${m.model_id}</td>
+      <td>${sideStr}</td>
+      <td style="color:#f87171;font-weight:600">${m.fail_count}</td>
+      <td>
+        <button class="ghost" style="padding:3px 10px;font-size:11px;color:#f87171;border-color:#f87171;"
+            onclick="deleteFailedModel(${m.model_id}, this)">删除</button>
+      </td>
+    </tr>`;
+  });
+  document.getElementById('failed-rows').innerHTML = rows.join('');
+}
+
+async function deleteFailedModel(modelId, btn) {
+  if (!confirm(`确认删除模型 #${modelId}？此操作不可撤销。`)) return;
+  const table = (_currentBar === '5m') ? 'model_5m' : 'model_1m';
+  btn.disabled = true; btn.textContent = '⏳';
+  try {
+    const r = await fetch('/api/models/delete', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({table, id: modelId})
+    });
+    const d = await r.json();
+    if (d.ok) {
+      const row = document.getElementById(`fmrow-${modelId}`);
+      if (row) row.style.opacity = '0.3';
+      btn.textContent = '✅ 已删除';
+      btn.style.color = '#4ade80'; btn.style.borderColor = '#4ade80';
+      // 同步更新计数
+      const remaining = document.querySelectorAll('#failed-rows tr:not([style*="opacity"])').length;
+      document.getElementById('failed-count').textContent = `共 ${remaining} 个模型 ID`;
+    } else {
+      btn.disabled = false; btn.textContent = '删除';
+      alert('删除失败：' + (d.msg || '未知错误'));
+    }
+  } catch(e) {
+    btn.disabled = false; btn.textContent = '删除';
+    alert('网络错误：' + e);
+  }
+}
+
+// ──────────────────── 建议晋升面板 ────────────────────
+function renderSuggestPromotes(list) {
+  const card = document.getElementById('suggest-card');
+  if (!list || !list.length) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+  document.getElementById('suggest-count').textContent =
+    `共 ${list.length} 条（按振幅排序）`;
+  const rows = list.map((s, i) => {
+    const dirColor = s.type === 1 ? '#22c55e' : '#f87171';
+    const dirName  = s.type === 1 ? '开多(涨)' : '开空(跌)';
+    return `<tr>
+      <td>${i + 1}</td>
+      <td>${s.time}</td>
+      <td><b style="color:${dirColor}">${dirName}</b></td>
+      <td>${s.price.toLocaleString()}</td>
+      <td style="color:#f0b90b;font-weight:600">+${s.amp}</td>
+      <td><button class="ghost" style="padding:3px 8px;font-size:11px"
+          onclick="goToIdx(${s.idx})">定位</button></td>
+      <td><button id="sp-btn-${i}" style="padding:3px 10px;font-size:11px"
+          onclick="promoteSuggest(${i},${s.ts},${s.type},this)">晋升</button></td>
+    </tr>`;
+  });
+  document.getElementById('suggest-rows').innerHTML = rows.join('');
+  // 挂一份 list 到全局供 promoteSuggest 读取
+  window._suggestList = list;
+}
+
+async function promoteSuggest(i, ts, type, btn) {
+  btn.disabled = true; btn.textContent = '⏳';
+  try {
+    const r = await fetch('/api/models/promote', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({type, ts, bar: _currentBar})
+    });
+    const d = await r.json();
+    if (d.ok) {
+      btn.textContent = `✅#${d.id}`;
+      btn.style.background = '#1c3a2e'; btn.style.color = '#4ade80';
+    } else {
+      btn.textContent = '⚠已存在'; btn.disabled = false;
+      btn.style.background = 'transparent'; btn.style.color = '#f0b90b';
+    }
+  } catch(e) {
+    btn.textContent = '✗错误'; btn.disabled = false;
+  }
+}
+</script>
+{% endblock %}

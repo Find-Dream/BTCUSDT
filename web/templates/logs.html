@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% block title %}日志 - 量化交易{% endblock %}
+{% block nav_logs %}active{% endblock %}
+{% block head %}
+<style>
+  .log-tab {
+    padding: 5px 14px; font-size: 12px; border-radius: 4px;
+    cursor: pointer; white-space: nowrap; font-weight: 600;
+    background: transparent; color: #a7b1c2; border: 1px solid #2b3648;
+    transition: all .15s;
+  }
+  .log-tab:hover { opacity: .85; }
+  .log-tab.active { background: #f0b90b; color: #161b22; border-color: #f0b90b; }
+  #log-box {
+    background: #0a0d11; border-radius: 6px;
+    padding: 10px 16px; height: calc(100vh - 176px); min-height: 300px;
+    overflow-y: auto; font-family: monospace; font-size: 12px;
+    line-height: 1.8; color: #9aa5b5; word-break: break-all;
+  }
+  .ll-err  { color: #f87171; }
+  .ll-warn { color: #fb923c; }
+  .ll-ok   { color: #4ade80; }
+  .ll-long { color: #22c55e; }
+  .ll-short{ color: #f87171; }
+  .ll-add  { color: #f0b90b; }
+  .ll-stop { color: #ef4444; font-weight: 600; }
+</style>
+{% endblock %}
+{% block content %}
+<!-- 顶栏：日志切换 + 控制按钮 -->
+<div class="card" style="padding:12px 16px;margin-bottom:12px;">
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+    <!-- 日志标签 -->
+    <div style="display:flex;gap:6px;flex-wrap:wrap;">
+      {% for name in log_names %}
+      <button class="log-tab" data-name="{{ name }}"
+              onclick="switchLog('{{ name }}')">{{ name }}</button>
+      {% endfor %}
+    </div>
+    <!-- 右侧控制 -->
+    <div style="margin-left:auto;display:flex;gap:10px;align-items:center;">
+      <label style="display:flex;align-items:center;gap:5px;font-size:12px;
+                    color:#9aa5b5;cursor:pointer;margin-bottom:0;">
+        <input type="checkbox" id="auto-scroll" checked
+               style="width:auto;transform:scale(1.2);cursor:pointer;">
+        自动滚动
+      </label>
+      <button class="ghost" onclick="clearLog()"
+              style="padding:5px 12px;font-size:12px;">清空显示</button>
+      <span id="conn-status" style="font-size:12px;color:#7d8899;white-space:nowrap;">
+        ⚫ 未连接
+      </span>
+    </div>
+  </div>
+</div>
+
+<!-- 日志输出区 -->
+<div class="card" style="padding:0;overflow:hidden;">
+  <div id="log-box"><div id="log-content"></div></div>
+</div>
+{% endblock %}
+{% block script %}
+<script>
+const LOG_NAMES = {{ log_names | tojson }};
+const MAX_LINES = 3000;   // DOM 最多保留行数，防内存泄漏
+
+let _es       = null;   // 当前 EventSource
+let _curLog   = null;   // 当前日志名
+let _lineCount = 0;     // 当前行数
+
+// ---- 切换日志 ----
+function switchLog(name) {
+  if (_curLog === name) return;
+  _curLog = name;
+
+  // 高亮当前 tab
+  document.querySelectorAll('.log-tab').forEach(b => {
+    const on = b.dataset.name === name;
+    b.className = 'log-tab' + (on ? ' active' : '');
+  });
+
+  clearLog();
+  connect(name);
+}
+
+function clearLog() {
+  document.getElementById('log-content').innerHTML = '';
+  _lineCount = 0;
+}
+
+// ---- SSE 连接 ----
+function connect(name) {
+  if (_es) { _es.close(); _es = null; }
+  setStatus('🟡 连接中…', '#f0b90b');
+
+  _es = new EventSource('/api/logs/stream?name=' + encodeURIComponent(name));
+
+  _es.onopen = () => setStatus('🟢 实时', '#4ade80');
+
+  _es.onmessage = e => {
+    try { appendLine(JSON.parse(e.data).line); } catch {}
+  };
+
+  _es.onerror = () => {
+    setStatus('🔴 已断开，3s 后重连…', '#f87171');
+    _es.close(); _es = null;
+    // 3 秒后重连（只有当前日志未切换时才重连）
+    setTimeout(() => { if (_curLog === name) connect(name); }, 3000);
+  };
+}
+
+// ---- 追加一行 ----
+function appendLine(text) {
+  if (!text) return;
+  const content = document.getElementById('log-content');
+
+  // 超限时移除最早行
+  while (_lineCount >= MAX_LINES && content.firstElementChild) {
+    content.removeChild(content.firstElementChild);
+    _lineCount--;
+  }
+
+  const div = document.createElement('div');
+  div.textContent = text;
+  div.className   = _classify(text);
+  content.appendChild(div);
+  _lineCount++;
+
+  // 自动滚动
+  if (document.getElementById('auto-scroll').checked) {
+    const box = document.getElementById('log-box');
+    box.scrollTop = box.scrollHeight;
+  }
+}
+
+// ---- 日志行分类（用于着色）----
+function _classify(t) {
+  const l = t.toLowerCase();
+  if (l.includes('error') || l.includes('异常') || l.includes('✗'))  return 'll-err';
+  if (l.includes('warn')  || l.includes('⚠'))                        return 'll-warn';
+  if (l.includes('止损'))                                              return 'll-stop';
+  if (l.includes('加仓'))                                              return 'll-add';
+  if (l.includes('开多')  || l.includes('止盈平多'))                  return 'll-long';
+  if (l.includes('开空')  || l.includes('止盈平空'))                  return 'll-short';
+  if (l.includes('✓')    || l.includes('成功') || l.includes('完成')) return 'll-ok';
+  return '';
+}
+
+function setStatus(text, color) {
+  const el = document.getElementById('conn-status');
+  el.textContent = text;
+  el.style.color  = color;
+}
+
+// 页面离开时关闭 SSE，避免泄漏
+window.addEventListener('beforeunload', () => { if (_es) _es.close(); });
+
+// 默认打开第一个日志
+if (LOG_NAMES.length) switchLog(LOG_NAMES[0]);
+</script>
+{% endblock %}
