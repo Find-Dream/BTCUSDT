@@ -43,8 +43,8 @@
 ### 1. 克隆并安装依赖
 
 ```bash
-git clone <repo_url>
-cd new_project
+git clone https://github.com/btcusdt-ai/BTCAlpha.git
+cd BTCAlpha
 pip install -r requirements.txt
 ```
 
