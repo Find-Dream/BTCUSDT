@@ -5,11 +5,23 @@
 
   <div class="card">
     <h2 style="display:flex;align-items:center;gap:12px;">
-      模型库 
+      模型库
+      <span id="model-count" style="font-size:12px;color:#7d8899;font-weight:400;"></span>
       <span style="margin-left:auto;font-size:12px;color:#7d8899;">
         晋升模型请在 K线图 页面点选时间节点</span>
     </h2>
     <div id="promote-msg" style="font-size:13px;margin-bottom:8px;"></div>
+    <!-- 搜索栏 -->
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+      <input id="model-search" type="text" placeholder="🔍 搜索模型 ID…"
+             style="width:180px;padding:5px 10px;font-size:13px;
+                    background:#0e1116;border:1px solid #2b3648;border-radius:4px;
+                    color:#e6edf3;outline:none;"
+             oninput="filterModels()"
+             onkeydown="if(event.key==='Escape'){this.value='';filterModels();}">
+      <button class="ghost" style="padding:4px 10px;font-size:12px;" onclick="document.getElementById('model-search').value='';filterModels();">清空</button>
+      <span id="filter-hint" style="font-size:12px;color:#7d8899;"></span>
+    </div>
     <div style="max-height:300px;overflow:auto;">
       <table>
         <thead><tr><th>ID</th><th>类型</th><th>15码指纹</th><th>时间</th><th></th></tr></thead>
@@ -44,17 +56,48 @@ const TYPE = {1:'开多',2:'平多',3:'开空',4:'平空'};
 const FP = ['spot_1','m5_1','m3_1','spot_2','m5_2','m3_2','spot_3','m5_3','m3_3',
             'spot_4','m5_4','m3_4','spot_5','m5_5','m3_5'];
 
+let _allModels = [];  // 缓存全量模型，用于客户端过滤
+
+function renderModelRow(m) {
+  const codes = FP.map(f => m[f]).join(',');
+  const t = new Date(m.uptime * 1000).toLocaleString();
+  const typeLabel = TYPE[m.type] || m.type;
+  const typeColor = (m.type===1||m.type===4) ? '#22c55e' : '#f87171';
+  return `<tr id="mrow-${m.id}">
+    <td style="font-weight:600;color:#60a5fa">#${m.id}</td>
+    <td><span style="color:${typeColor};font-weight:600">${typeLabel}</span></td>
+    <td style="font-family:monospace;font-size:11px;color:#9aa5b5">${codes}</td>
+    <td style="color:#7d8899;font-size:12px">${t}</td>
+    <td><button class="ghost" onclick="delModel(${m.id})">删除</button></td>
+  </tr>`;
+}
+
+function filterModels() {
+  const q = document.getElementById('model-search').value.trim();
+  const tb = document.getElementById('model-rows');
+  const hint = document.getElementById('filter-hint');
+
+  const filtered = q
+    ? _allModels.filter(m => String(m.id) === q)
+    : _allModels;
+
+  if (!filtered.length) {
+    tb.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#7d8899;padding:16px;">
+      未找到 ID 含「${q}」的模型</td></tr>`;
+    hint.textContent = '无结果';
+    hint.style.color = '#f87171';
+  } else {
+    tb.innerHTML = filtered.map(renderModelRow).join('');
+    hint.textContent = q ? `共 ${filtered.length} / ${_allModels.length} 条` : '';
+    hint.style.color = '#7d8899';
+  }
+}
+
 function loadModels() {
   fetch('/api/models?table=model_1m').then(r => r.json()).then(rows => {
-    const tb = document.getElementById('model-rows');
-    tb.innerHTML = '';
-    rows.forEach(m => {
-      const codes = FP.map(f => m[f]).join(',');
-      const t = new Date(m.uptime * 1000).toLocaleString();
-      tb.innerHTML += `<tr><td>${m.id}</td><td>${TYPE[m.type]||m.type}</td>
-        <td style="font-family:monospace;font-size:11px;">${codes}</td><td>${t}</td>
-        <td><button class="ghost" onclick="delModel(${m.id})">删除</button></td></tr>`;
-    });
+    _allModels = rows;
+    document.getElementById('model-count').textContent = `共 ${rows.length} 个`;
+    filterModels();  // 应用当前搜索词（重新加载后保持过滤状态）
   });
 }
 

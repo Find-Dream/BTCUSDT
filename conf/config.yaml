@@ -15,7 +15,7 @@ trade:
   td_mode: cross
   ord_type: market
   lever: 1
-  start_sz: 3
+  start_sz: 10
   sz_divisor: 15
   pos_ok: 3
   order_ttl: 11
@@ -42,8 +42,8 @@ paths:
   db_path: data/btcusdt.db
 direction_filter:
   enabled: true
-  threshold: 6
-  backtest_threshold: 4
+  threshold: 4
+  backtest_threshold: 2
   apply_to_add: false
   vol_window: 20
   breakout_window: 20
@@ -52,4 +52,4 @@ fng_filter:
   enabled: true
   cache_ttl: 3600
   trend_days: 5
-  trend_threshold: 3.0
+  trend_threshold: 3

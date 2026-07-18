@@ -293,7 +293,7 @@ def api_config():
 # ==================== 模型接口 ====================
 @bp.route("/api/models")
 def api_models():
-    rows = models_dao.list_models("model_1m", limit=300)
+    rows = models_dao.list_models("model_1m")
     cols = ["id", "type"] + list(__import__("model.fingerprint", fromlist=["FIELDS"]).FIELDS) + ["uptime"]
     data = [dict(zip(cols, r)) for r in rows]
     return jsonify(data)

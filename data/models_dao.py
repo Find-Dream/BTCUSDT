@@ -46,8 +46,11 @@ def exists(table, codes):
     return tuple(codes) in all_code_keys(table)
 
 
-def list_models(table, limit=200):
-    """列出模型（最新在前），供 Web 模型管理页。"""
+def list_models(table, limit=None):
+    """列出模型（最新在前），供 Web 模型管理页。limit=None 表示不限条数。"""
+    if limit is None:
+        return db.query(
+            "SELECT id,type,%s,uptime FROM %s ORDER BY id DESC" % (_cols(), table))
     return db.query(
         "SELECT id,type,%s,uptime FROM %s ORDER BY id DESC LIMIT ?" % (_cols(), table),
         (limit,))

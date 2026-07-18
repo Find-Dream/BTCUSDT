@@ -107,6 +107,86 @@ def score_trend(closes: list) -> int:
     return max(-3, min(3, score))
 
 
+def _vol_ratio(vols: list, window: int) -> float:
+    """当前成交量相对近 window 根均量的倍数。"""
+    avg = sum(vols[-(window + 1):-1]) / window
+    return vols[-1] / avg if avg > 0 else 1.0
+
+
+def _score_price_volume(closes: list, vols: list,
+                        vr: float,
+                        price_threshold: float,
+                        vol_high: float) -> tuple:
+    """量价关系评分（±2）。
+
+    返回 (score, vol_high_ok)；vol_high_ok 供突破有效性子函数复用，
+    避免重复计算。
+
+      +2：价涨量增（趋势延续信号）
+      -2：价跌量增（下跌动能充足）
+       0：价量不匹配或变动幅度不足（方向不明）
+    """
+    dp         = (closes[-1] - closes[-2]) / closes[-2] if closes[-2] != 0 else 0
+    price_up   = dp >  price_threshold
+    price_down = dp < -price_threshold
+    vol_high_ok = vr > vol_high
+
+    if price_up and vol_high_ok:
+        return 2, vol_high_ok    # 价涨量增
+    if price_down and vol_high_ok:
+        return -2, vol_high_ok   # 价跌量增
+    return 0, vol_high_ok        # 量不足或价格波动过小，方向不明
+
+
+def _score_breakout(closes: list, highs: list, lows: list,
+                    window: int, vol_high_ok: bool) -> int:
+    """突破有效性评分（±3）。
+
+    以近 window 根的最高/最低价为参考：
+      +3：放量上方突破（有效突破）
+      -1：缩量上方突破（假突破警告）
+      -3：放量下方跌破（有效跌破）
+      +1：缩量下方跌破（假跌破，可能反弹）
+       0：价格仍在区间内
+    """
+    win    = min(window, len(closes) - 1)
+    r_high = max(highs[-(win + 1):-1])
+    r_low  = min(lows[-(win + 1):-1])
+    cur    = closes[-1]
+
+    if cur > r_high:
+        return 3 if vol_high_ok else -1
+    if cur < r_low:
+        return -3 if vol_high_ok else 1
+    return 0
+
+
+def _score_divergence(closes: list, vols: list, window: int) -> int:
+    """量价背离评分（±2）。
+
+    对过去 window 根 K 线分别做价格和成交量的线性斜率判断：
+      +2：量价齐升（价↑量↑），趋势最健康
+      -2：量价齐跌（价↓量↓），动能最弱
+      -1：涨势缩量（价↑量↓），动能衰减，小幅警惕
+       0：跌势放量（价↓量↑），含义模糊，不给分
+    """
+    dw = min(window, len(closes))
+    if dw < 5:
+        return 0
+
+    ps = _linear_slope_sign(closes[-dw:])
+    vs = _linear_slope_sign(vols[-dw:])
+
+    if ps > 0 and vs > 0:
+        return 2    # 量价齐升
+    if ps < 0 and vs < 0:
+        return -2   # 量价齐跌
+    if ps > 0 and vs < 0:
+        return -1   # 涨势缩量，动能衰减
+    # ps < 0 and vs > 0：跌势放量，含义模糊
+    return 0
+
+
 def score_volume(candles: list,
                  vol_window:      int   = 20,
                  breakout_window: int   = 20,
@@ -114,14 +194,16 @@ def score_volume(candles: list,
                  price_threshold: float = 0.001,
                  vol_high:        float = 1.5,
                  vol_low:         float = 0.8) -> int:
-    """成交量维度评分（上限 ±5）。
+    """成交量维度综合评分，截断至 ±5。
 
-    量价关系 ±2，突破有效性 ±3，量价背离 ±2。
+    子维度：
+      量价关系   ±2 — 当前 K 线价格涨跌方向与成交量放缩是否匹配
+      突破有效性 ±3 — 近期高低点突破/跌破是否有成交量支撑
+      量价背离   ±2 — 过去 N 根价格趋势与成交量趋势是否背离
+
     OKX candle 格式：[ts_ms, open, high, low, close, vol, ...]
     """
-    score = 0
-    n = len(candles)
-    if n < vol_window + 2:
+    if len(candles) < vol_window + 2:
         return 0
 
     closes = [float(c[4]) for c in candles]
@@ -129,49 +211,12 @@ def score_volume(candles: list,
     lows   = [float(c[3]) for c in candles]
     vols   = [float(c[5]) for c in candles]
 
-    # ── 量价关系 ──
-    avg_vol   = sum(vols[-(vol_window + 1):-1]) / vol_window
-    cur_vol   = vols[-1]
-    vol_ratio = cur_vol / avg_vol if avg_vol > 0 else 1.0
+    vr                  = _vol_ratio(vols, vol_window)
+    s_pv, vol_high_ok   = _score_price_volume(closes, vols, vr, price_threshold, vol_high)
+    s_bo                = _score_breakout(closes, highs, lows, breakout_window, vol_high_ok)
+    s_div               = _score_divergence(closes, vols, diverge_window)
 
-    dp         = (closes[-1] - closes[-2]) / closes[-2] if closes[-2] != 0 else 0
-    price_up   = dp >  price_threshold
-    price_down = dp < -price_threshold
-    vol_high_ok = vol_ratio > vol_high
-    vol_low_ok  = vol_ratio < vol_low
-
-    if price_up and vol_high_ok:
-        score += 2   # 价涨量增
-    elif price_down and vol_high_ok:
-        score -= 2   # 价跌量增
-    # price_up + vol_low / price_down + vol_low → 0 分（不确定）
-
-    # ── 突破有效性 ──
-    win   = min(breakout_window, n - 1)
-    p_high = max(highs[-(win + 1):-1])
-    p_low  = min(lows[-(win + 1):-1])
-    cur    = closes[-1]
-
-    if cur > p_high:
-        score += 3 if vol_high_ok else -1   # 放量突破 / 缩量假突破
-    elif cur < p_low:
-        score += -3 if vol_high_ok else 1   # 放量跌破 / 缩量假跌破
-
-    # ── 量价背离 ──
-    dw = min(diverge_window, n)
-    if dw >= 5:
-        ps = _linear_slope_sign(closes[-dw:])
-        vs = _linear_slope_sign(vols[-dw:])
-        if ps > 0 and vs < 0:
-            score -= 2   # 顶背离：价升量缩，警惕反转
-        elif ps < 0 and vs > 0:
-            score += 2   # 底背离：价跌量增，可能企稳
-        elif ps > 0 and vs > 0:
-            score += 1   # 同步上涨
-        elif ps < 0 and vs < 0:
-            score -= 1   # 同步下跌
-
-    return max(-5, min(5, score))
+    return max(-5, min(5, s_pv + s_bo + s_div))
 
 
 def score_microstructure(obi: float = None,

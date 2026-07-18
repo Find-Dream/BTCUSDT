@@ -259,6 +259,80 @@
 {% block script %}
 <script>
 // ════════════════════════════════════════
+// K 线 Tooltip 公共格式（彩点列表风格）
+// ECharts candlestick p.value = [xIndex, open, close, low, high]（含 x 轴索引）
+// ════════════════════════════════════════
+function _klineTooltip(params) {
+  if (!params || !params.length) return '';
+  const time = params[0].axisValueLabel || '';
+
+  const fmt = v => (v == null ? '-' :
+    Number(v).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}));
+  const fmtVol = v => {
+    const n = Number(v);
+    if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+    if (n >= 1e3) return (n / 1e3).toFixed(2) + 'K';
+    return n.toFixed(2);
+  };
+  const dot = c => `<span style="display:inline-block;margin-right:6px;width:9px;height:9px;
+    border-radius:50%;background:${typeof c==='string'?c:'#7d8899'};
+    vertical-align:middle;flex-shrink:0;"></span>`;
+  const row = (color, label, val, valStyle='color:#c9d1d9;') =>
+    `<div style="display:flex;justify-content:space-between;align-items:center;
+        gap:24px;line-height:2;min-width:210px;">
+      <span style="color:#8b949e;display:flex;align-items:center;white-space:nowrap;">
+        ${dot(color)}${label}
+      </span>
+      <span style="font-variant-numeric:tabular-nums;${valStyle}">${val}</span>
+    </div>`;
+
+  let html = `<div style="font-size:12px;padding:2px 0;">
+    <div style="color:#c9d1d9;margin-bottom:2px;font-size:12px;">${time}</div>`;
+
+  params.forEach(p => {
+    const name = p.seriesName;
+    if (!name) return;
+
+    if (name === 'K线') {
+      // ECharts 对 category 轴的 candlestick，p.value = [xIndex, open, close, low, high]
+      // 长度为 5 时跳过第 0 个（x 轴索引），长度为 4 时直接用
+      const raw = Array.isArray(p.value) ? p.value : (Array.isArray(p.data) ? p.data : []);
+      const off  = raw.length === 5 ? 1 : 0;
+      const open = raw[off], close = raw[off+1], low = raw[off+2], high = raw[off+3];
+      const isUp   = close >= open;
+      const clr    = isUp ? '#26a17b' : '#cf304a';  // 深绿 / 深红，更易辨识
+      const chgPct = open ? ((close - open) / open * 100) : 0;
+      const sign   = chgPct >= 0 ? '+' : '';
+      html += row(clr, '开', fmt(open));
+      html += row(clr, '高', fmt(high));
+      html += row(clr, '低', fmt(low));
+      html += `<div style="display:flex;justify-content:space-between;align-items:center;
+          gap:24px;line-height:2;min-width:210px;">
+        <span style="color:#8b949e;display:flex;align-items:center;">${dot(clr)}收</span>
+        <span style="color:${clr};font-weight:700;font-variant-numeric:tabular-nums;">
+          ${fmt(close)}&nbsp;<span style="font-size:11px;font-weight:400">
+            ${sign}${chgPct.toFixed(2)}%</span>
+        </span>
+      </div>`;
+    } else if (name === '成交量') {
+      const v = p.data?.value ?? p.data ?? p.value;
+      const color = typeof p.color === 'string' ? p.color : '#7d8899';
+      html += row(color, '量', fmtVol(v));
+    } else if (/^MA/.test(name)) {
+      const v = typeof p.value === 'number' ? p.value
+              : (typeof p.data  === 'number' ? p.data : null);
+      if (v != null) {
+        const color = typeof p.color === 'string' ? p.color : '#9aa5b5';
+        html += row(color, name, fmt(v), `color:${color};`);
+      }
+    }
+  });
+
+  html += '</div>';
+  return html;
+}
+
+// ════════════════════════════════════════
 // 实时 K 线图
 // ════════════════════════════════════════
 const chart = echarts.init(document.getElementById('chart'), 'dark');
@@ -365,15 +439,7 @@ function _applyLiveChart(k, signals, status) {
   }));
   chart.setOption({
     backgroundColor:'transparent',
-    tooltip:{trigger:'axis',axisPointer:{type:'cross'},
-      formatter(params){
-        let h=params[0].axisValueLabel+'<br>';
-        params.forEach(p=>{
-          if(p.seriesName==='K线') h+=`开:<b>${p.data[0]}</b> 收:<b>${p.data[1]}</b> 低:${p.data[2]} 高:${p.data[3]}<br>`;
-          else if(p.seriesName==='成交量') h+=`成交量: <b>${p.data.value??p.data}</b><br>`;
-          else h+=`${p.seriesName}: ${p.data??'-'}<br>`;
-        }); return h;
-      }},
+    tooltip:{trigger:'axis',axisPointer:{type:'cross'},formatter:_klineTooltip},
     legend:{data:['K线','MA5','MA10','MA20'],textStyle:{color:'#a7b1c2'},top:4},
     grid:[
       {left:70,right:20,top:36,bottom:'30%'},
@@ -693,16 +759,7 @@ function renderResult(res) {
 
   chart.setOption({
     backgroundColor:'transparent',
-    tooltip:{trigger:'axis',axisPointer:{type:'cross'},
-      formatter(params){
-        let h=params[0].axisValueLabel+'<br>';
-        params.forEach(p=>{
-          if(p.seriesName==='K线') h+=`开:<b>${p.data[0]}</b> 收:<b>${p.data[1]}</b> 低:${p.data[2]} 高:${p.data[3]}<br>`;
-          else if(p.seriesName==='成交量') h+=`成交量: <b>${p.data.value??p.data}</b><br>`;
-          else if(SIG[Object.keys(SIG).find(k=>SIG[k].name===p.seriesName)]) return;
-          else h+=`${p.seriesName}: ${p.data??'-'}<br>`;
-        }); return h;
-      }},
+    tooltip:{trigger:'axis',axisPointer:{type:'cross'},formatter:_klineTooltip},
     legend:{data:['K线','MA5','MA10','MA20','开多','平多','开空','平空','加多','加空','止损多','止损空'],textStyle:{color:'#a7b1c2'},top:4},
     grid:[
       {left:70,right:20,top:36,bottom:'30%'},
