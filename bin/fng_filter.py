@@ -1,6 +1,5 @@
-"""恐慌贪婪指数（Fear & Greed Index）开仓过滤模块。
+"""市场情绪指数（Fear & Greed Index）开仓过滤模块。
 
-数据来源：https://api.alternative.me/fng/?limit=0
 每日更新一次，默认缓存 1 小时（可配置）。
 
 开仓规则（score 范围 0–100）：
@@ -36,21 +35,21 @@ _CACHE: dict = {}   # ts → 缓存时间戳，data → [{value, timestamp}, ...
 # ──────────────────── 数据拉取与缓存 ────────────────────
 
 def _fetch_raw() -> list:
-    """从 alternative.me 拉取全量历史（newest-first）。失败返回空列表。"""
+    """拉取全量历史（newest-first）。失败返回空列表。"""
     try:
         req = urllib.request.Request(_FNG_URL, headers={"User-Agent": "btcusdt-bot/1.0"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             raw = json.loads(resp.read().decode())
             data = raw.get("data", [])
-            log.info("FNG 数据拉取成功，共 %d 条历史", len(data))
+            log.info("数据拉取成功，共 %d 条历史", len(data))
             return data
     except Exception as e:
-        log.warning("FNG 数据拉取失败: %s", e)
+        log.warning("数据拉取失败: %s", e)
         return []
 
 
 def get_data() -> list:
-    """获取 FNG 全量历史（带缓存，TTL 见 config fng_filter.cache_ttl，默认 3600s）。
+    """获取全量历史（带缓存，TTL 见 config fng_filter.cache_ttl，默认 3600s）。
 
     返回 [{value: str, timestamp: str, ...}, ...]，newest-first。
     """
