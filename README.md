@@ -12,6 +12,8 @@
 
 多维度评分汇总后与动态阈值比较，仅在信号充分收敛时执行下单，从根本上规避单一指标失效的风险。
 
+欢迎大家积极参与本项目，分享量化交易的先进经验和算法 → [经验分享](https://github.com/btcusdt-cc/BTCAlpha/issues)
+
 <img width="3440" height="1271" alt="image" src="https://github.com/user-attachments/assets/44824e62-56a9-4e71-bede-77b1b3d94d3b" />
 <img width="1004" height="855" alt="image" src="https://github.com/user-attachments/assets/cee0ce11-3c59-4429-84c2-6cf8466806c6" />
 
