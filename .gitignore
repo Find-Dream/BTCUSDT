@@ -2,16 +2,7 @@
 conf/okx_api.json
 
 # 日志
-log/a*
-log/b*
-log/d*
-log/f*
-log/k*
-log/m*
-log/o*
-log/w*
-log/t*
-log/*.log
+log/*
 
 # python
 __pycache__/
