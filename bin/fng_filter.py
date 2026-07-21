@@ -26,7 +26,7 @@ from bin.logger import get_logger
 
 log = get_logger("fng_filter")
 
-_FNG_URL = "https://www.btcusdt.cc/api/fng"
+_FNG_URL = "https://api.alternative.me/fng/?limit=0&format=json;"
 
 _CACHE_LOCK = threading.Lock()
 _CACHE: dict = {}   # ts → 缓存时间戳，data → [{value, timestamp}, ...]
