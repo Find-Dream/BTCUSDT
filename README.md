@@ -16,9 +16,6 @@
 
 >  ***欢迎大家积极参与本项目，分享量化交易的先进经验和算法 → [经验分享](https://github.com/btcusdt-cc/BTCAlpha/issues)***
 >
-> ***本项目官方网站：[www.btcusdt.cc](https://www.btcusdt.cc)***
-
-
 
 <img width="3440" height="1271" alt="image" src="https://github.com/user-attachments/assets/44824e62-56a9-4e71-bede-77b1b3d94d3b" />
 <img width="1004" height="855" alt="image" src="https://github.com/user-attachments/assets/cee0ce11-3c59-4429-84c2-6cf8466806c6" />
